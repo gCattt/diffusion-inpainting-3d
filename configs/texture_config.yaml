@@ -1,0 +1,8 @@
+input_dir: data/textures/original
+output_dir: data/textures/resized
+size: 1024
+extensions:
+  - jpg
+  - jpeg
+  - png
+quality: 95
