@@ -1,1 +1,12 @@
 # PyTorch3D rendering
+
+mesh_dir: data/models
+texture_dir: data/textures/corrupted/images
+render_dir: data/renders
+
+num_views: 4
+image_size: 512
+
+camera_distance: 2.0
+elevation_range: [10, 60]
+azimuth_range: [0, 360]
