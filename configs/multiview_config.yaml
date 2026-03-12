@@ -1,7 +1,8 @@
 # PyTorch3D rendering
 
 mesh_dir: data/models
-texture_dir: data/textures/corrupted/images
+texture_images_dir: data/textures/corrupted/images
+texture_masks_dir: data/textures/corrupted/masks
 render_dir: data/renders
 
 num_views: 4

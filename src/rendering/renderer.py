@@ -19,6 +19,7 @@ from pytorch3d.renderer import (
 import torchvision.transforms as T
 from torchvision.utils import save_image
 from .camera_utils import create_cameras
+from src.utils.io_utils import find_mesh_for_texture
 
 
 def load_config(path="configs/multiview_config.yaml"):
@@ -122,22 +123,11 @@ def render_views(mesh_path, texture_path, renderer, cameras, rgb_dir, depth_dir,
 
     del mesh
 
-def find_mesh_for_texture(texture_path, mesh_dir):
-    name = texture_path.stem
-    # remove diffusion-specific suffix
-    base = name.replace("_diff", "").replace("_corrupted", "")
-
-    candidates = list(mesh_dir.glob(f"{base}*.obj"))
-    if not candidates:
-        return None
-
-    return candidates[0]
-
 def renderer_main():
     cfg = load_config()
 
     mesh_dir = Path(cfg["mesh_dir"])
-    texture_dir = Path(cfg["texture_dir"])
+    texture_images_dir = Path(cfg["texture_images_dir"])
 
     rgb_dir = Path(cfg["render_dir"]) / "rgb"
     depth_dir = Path(cfg["render_dir"]) / "depth"
@@ -158,7 +148,7 @@ def renderer_main():
 
     metadata = []
 
-    for texture_path in texture_dir.glob("*_corrupted.png"):
+    for texture_path in texture_images_dir.glob("*_corrupted.png"):
         mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
         if mesh_path is None:
             continue
