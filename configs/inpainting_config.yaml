@@ -1,0 +1,20 @@
+# configs/inpainting_config.yaml
+
+# directories (absolute or relative to repo root)
+rgb_dir: data/renders/rgb
+mask_dir: data/renders/masks
+inpainted_dir: data/outputs/inpainted_views
+
+# model / device
+model_id: runwayml/stable-diffusion-inpainting
+device: cpu   # or "cuda"
+use_auth_token: null   # if private model, set your HF token string or use env var
+
+# inference params
+num_inference_steps: 20
+guidance_scale: 7.5
+negative_prompt: ""
+resize_to: 256   # optional: resize input to this square size before inpainting (None to skip)
+
+# prompt default (override per run or set a general prompt)
+prompt: "photo-realistic kiwi texture, consistent lighting, match surrounding materials"

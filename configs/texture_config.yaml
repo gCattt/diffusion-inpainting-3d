@@ -4,7 +4,7 @@ input_dir: data/textures/original
 resized_dir: data/textures/resized
 corrupted_dir: data/textures/corrupted
 
-size: 1024
+size: 256
 
 extensions:
   - jpg
