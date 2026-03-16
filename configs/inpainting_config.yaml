@@ -1,18 +1,22 @@
-# configs/inpainting_config.yaml
+# Stable Diffusion inpainting
 
 # directories (absolute or relative to repo root)
 rgb_dir: data/renders/rgb
 mask_dir: data/renders/masks
+depth_dir: data/renders/depth
 inpainted_dir: data/outputs/inpainted_views
 
 # model / device
-model_id: runwayml/stable-diffusion-inpainting
+base_model_id: runwayml/stable-diffusion-inpainting
+controlnet_model_id: lllyasviel/sd-controlnet-depth
 device: cpu   # or "cuda"
 use_auth_token: null   # if private model, set your HF token string or use env var
 
 # inference params
-num_inference_steps: 20
+seed: 1234
+num_inference_steps: 25
 guidance_scale: 7.5
+controlnet_conditioning_scale: 1.0
 negative_prompt: ""
 resize_to: 256   # optional: resize input to this square size before inpainting (None to skip)
 
