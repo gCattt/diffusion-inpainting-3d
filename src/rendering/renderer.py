@@ -3,7 +3,6 @@ from PIL import Image
 import yaml
 import torch
 import json
-import imageio
 import numpy as np
 from pytorch3d.io import load_obj
 from pytorch3d.structures import Meshes
@@ -13,6 +12,7 @@ from pytorch3d.renderer import (
     MeshRasterizer,
     SoftPhongShader,
     PointLights,
+    AmbientLights,
     TexturesUV,
     FoVPerspectiveCameras
 )
@@ -53,14 +53,17 @@ def load_mesh(mesh_path, texture_path, device):
 
     return mesh
 
-def create_renderer(cfg, device):
+def create_renderer(cfg, device, flat=False):
     raster_settings = RasterizationSettings(
         image_size=cfg["image_size"],
         blur_radius=0.0,
         faces_per_pixel=1,
     )
 
-    lights = PointLights(device=device, location=[[2.0, 2.0, 2.0]])
+    if flat:
+        lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
+    else:
+        lights = PointLights(device=device, location=[[2.0, 2.0, 2.0]])
 
     renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
@@ -76,7 +79,8 @@ def create_renderer(cfg, device):
 
     return renderer
 
-def render_views(mesh_path, texture_path, renderer, cameras, rgb_dir, depth_dir, face_dir, bary_dir, cam_dir, cfg, device):
+def render_views(mesh_path, texture_path, renderer_shaded, renderer_flat, cameras,
+                rgb_dir, rgb_inpaint_dir, depth_dir, face_dir, bary_dir, cam_dir, cfg, device):
     with torch.no_grad():
         mesh = load_mesh(mesh_path, texture_path, device)
         # normalize mesh scale
@@ -92,21 +96,26 @@ def render_views(mesh_path, texture_path, renderer, cameras, rgb_dir, depth_dir,
                 T=cameras.T[i:i+1],
             )
 
-            images = renderer(mesh, cameras=cam)
-            rgb = images[0, ..., :3]
+            images_shaded = renderer_shaded(mesh, cameras=cam)
+            rgb_shaded = images_shaded[0, ..., :3]
 
-            fragments = renderer.rasterizer(mesh, cameras=cam)
+            images_flat = renderer_flat(mesh, cameras=cam)
+            rgb_flat = images_flat[0, ..., :3]
+
+            fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
             pix_to_face = fragments.pix_to_face[0]
             bary_coords = fragments.bary_coords[0]
             depth = fragments.zbuf[0, ..., 0]
 
             rgb_path = rgb_dir / f"{mesh_name}_view{i:02d}.png"
+            rgb_inpaint_path = rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png"            
             depth_path = depth_dir / f"{mesh_name}_view{i:02d}.pt"
             face_path = face_dir / f"{mesh_name}_view{i:02d}.pt"
             bary_path = bary_dir / f"{mesh_name}_view{i:02d}.pt"
             cam_path = cam_dir / f"{mesh_name}_view{i:02d}.pt"
 
-            save_image(rgb.permute(2,0,1), rgb_path)
+            save_image(rgb_shaded.permute(2,0,1), rgb_path)
+            save_image(rgb_flat.permute(2,0,1), rgb_inpaint_path)
             torch.save(depth.cpu(), depth_path)
             torch.save(pix_to_face.cpu(), face_path)
             torch.save(bary_coords.cpu(), bary_path)
@@ -118,7 +127,7 @@ def render_views(mesh_path, texture_path, renderer, cameras, rgb_dir, depth_dir,
                 cam_path,
             )
 
-            del images, fragments, depth
+            del images_flat, images_shaded, fragments, depth
             torch.cuda.empty_cache()
 
     del mesh
@@ -130,12 +139,14 @@ def renderer_main():
     texture_images_dir = Path(cfg["texture_images_dir"])
 
     rgb_dir = Path(cfg["render_dir"]) / "rgb"
+    rgb_inpaint_dir = Path(cfg["render_dir"]) / "rgb_inpaint"
     depth_dir = Path(cfg["render_dir"]) / "depth"
     face_dir = Path(cfg["render_dir"]) / "face_idx"
     bary_dir = Path(cfg["render_dir"]) / "barycentric"
     cam_dir = Path(cfg["render_dir"]) / "cameras"
 
     rgb_dir.mkdir(parents=True, exist_ok=True)
+    rgb_inpaint_dir.mkdir(parents=True, exist_ok=True)
     depth_dir.mkdir(parents=True, exist_ok=True)
     face_dir.mkdir(parents=True, exist_ok=True)
     bary_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +155,8 @@ def renderer_main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     cameras = create_cameras(cfg, device)
-    renderer = create_renderer(cfg, device)
+    renderer_shaded = create_renderer(cfg, device, flat=False)
+    renderer_flat = create_renderer(cfg, device, flat=True)
 
     metadata = []
 
@@ -156,9 +168,11 @@ def renderer_main():
         render_views(
             mesh_path,
             texture_path,
-            renderer,
+            renderer_shaded,
+            renderer_flat,
             cameras,
             rgb_dir,
+            rgb_inpaint_dir,
             depth_dir,
             face_dir,
             bary_dir,

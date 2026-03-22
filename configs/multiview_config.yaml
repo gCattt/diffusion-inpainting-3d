@@ -6,7 +6,7 @@ texture_masks_dir: data/textures/corrupted/masks
 render_dir: data/renders
 
 num_views: 4
-image_size: 256
+image_size: 512
 
 camera_distance: 2.0
 elevation_range: [10, 60]

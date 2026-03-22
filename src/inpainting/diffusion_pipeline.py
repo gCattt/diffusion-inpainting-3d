@@ -72,18 +72,6 @@ class DiffusionInpaint:
             self.pipe.enable_model_cpu_offload()
         except Exception:
             pass
-        try:
-            self.pipe.vae.enable_slicing()
-        except Exception:
-            pass
-        try:
-            self.pipe.enable_attention_slicing()
-        except Exception:
-            pass
-        try:
-            self.pipe.enable_xformers_memory_efficient_attention()
-        except Exception:
-            pass
 
     def inpaint(
         self,
@@ -129,7 +117,7 @@ class DiffusionInpaint:
         return out_img
 
 # helper: convert depth tensor (torch) or numpy array to PIL RGB depth image
-def depth_tensor_to_control_pil(depth_tensor, target_size: Optional[int] = None):
+def depth_tensor_to_control_pil(depth_tensor, target_size: Optional[int] = None, valid_mask: Optional[np.ndarray] = None):
     """
     depth_tensor: torch.Tensor (H,W) or numpy array.
     Normalizes depth to [0,255] and returns RGB PIL.
@@ -142,12 +130,21 @@ def depth_tensor_to_control_pil(depth_tensor, target_size: Optional[int] = None)
     # handle inf/nan
     d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0)
 
-    mn = float(d.min())
-    mx = float(d.max())
+    if valid_mask is not None:
+            # valid_mask is 1 where surface exists
+            d = d.copy()
+            d[valid_mask == 0] = np.nan  # mark background as nan to normalize out, will set to 0 later
+            
+    mn = float(np.nanmin(d)) if np.isfinite(np.nanmin(d)) else 0.0
+    mx = float(np.nanmax(d)) if np.isfinite(np.nanmax(d)) else mn + 1.0
     if mx - mn > 1e-8:
-        dn = (d - mn) / (mx - mn)
+        dn = (np.nan_to_num(d, nan=mn) - mn) / (mx - mn)
     else:
-        dn = d * 0.0
+        dn = np.zeros_like(d)
+
+    # ensure background = 0
+    if valid_mask is not None:
+        dn[valid_mask == 0] = 0.0
 
     arr = (dn * 255.0).astype("uint8")
     img = Image.fromarray(arr, mode="L").convert("RGB")
