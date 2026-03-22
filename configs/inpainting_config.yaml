@@ -1,27 +1,33 @@
-  # Stable Diffusion inpainting
+# Stable Diffusion inpainting
 
-  # directories (absolute or relative to repo root)
-  rgb_inpaint_dir: data/renders/rgb_inpaint
-  mask_dir: data/renders/masks
-  depth_dir: data/renders/depth
-  face_idx_dir: data/renders/face_idx
-  inpainted_dir: data/outputs/inpainted_views
+# directories (absolute or relative to repo root)
+rgb_inpaint_dir: data/renders/rgb_inpaint
+mask_dir: data/renders/masks
+depth_dir: data/renders/depth
+face_idx_dir: data/renders/face_idx
+inpainted_dir: data/outputs/inpainted_views
 
-  # model / device
-  #base_model_id: stable-diffusion-v1-5/stable-diffusion-inpainting
-  base_model_id: sd2-community/stable-diffusion-2-inpainting
-  #controlnet_model_id: lllyasviel/sd-controlnet-depth
-  controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
-  device: cpu   # or "cuda"
-  use_auth_token: null   # if private model, set your HF token string or use env var
+# model / device
+#base_model_id: stable-diffusion-v1-5/stable-diffusion-inpainting
+base_model_id: sd2-community/stable-diffusion-2-inpainting
+#controlnet_model_id: lllyasviel/sd-controlnet-depth
+controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
+device: cpu   # or "cuda"
+use_auth_token: null   # if private model, set your HF token string or use env var
 
-  # inference params
-  seed: 1234
-  num_inference_steps: 40
-  guidance_scale: 7.0
-  controlnet_conditioning_scale: 1.5
-  negative_prompt: "strong highlights, bright spots, overexposed areas"
-  resize_to: 512   # optional: resize input to this square size before inpainting (None to skip)
+# views
+max_views: 1
+rank_views_by_mask_coverage: true
+mask_dilate: 5
+same_noise_across_views: false
 
-  # prompt default (override per run or set a general prompt)
-  prompt: "photo‑realistic texture repair, consistent lighting and surface detail matching original texture, seamless, no hallucination or artifacts"
+# inference params
+seed: 1234
+num_inference_steps: 40
+guidance_scale: 7.0
+controlnet_conditioning_scale: 1.5
+negative_prompt: "strong highlights, bright spots, overexposed areas"
+resize_to: 512   # optional: resize input to this square size before inpainting (None to skip)
+
+# prompt default (override per run or set a general prompt)
+prompt: "photo‑realistic texture repair, consistent lighting and surface detail matching original texture, seamless, no hallucination or artifacts"

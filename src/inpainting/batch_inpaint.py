@@ -11,6 +11,20 @@ def load_config(path="configs/inpainting_config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
+def sorted_views_by_mask_coverage(rgb_dir: Path, mask_dir: Path):
+    scored = []
+    for rgb_path in sorted(rgb_dir.glob("*.png")):
+        name = rgb_path.stem
+        mask_path = mask_dir / f"{name}.png"
+        if not mask_path.exists():
+            continue
+        m = np.array(Image.open(mask_path).convert("L"), dtype=np.uint8)
+        score = int(m.sum())
+        scored.append((score, rgb_path))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [p for _, p in scored]
+
 def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
     cfg = load_config(cfg_path)
 
@@ -32,6 +46,11 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
     negative_prompt = cfg.get("negative_prompt", None)
     target_size = cfg.get("resize_to", None)
 
+    max_views = cfg.get("max_views", 1)  # inizia con 1
+    rank_by_coverage = bool(cfg.get("rank_views_by_mask_coverage", True))
+    mask_dilate = int(cfg.get("mask_dilate", 5))
+    same_noise_across_views = bool(cfg.get("same_noise_across_views", False))
+
     # init pipeline
     pipe = DiffusionInpaint(
         base_model_id=base_model_id,
@@ -40,12 +59,15 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         use_auth_token=use_auth
     )
 
-    generator = None
-    if seed is not None:
-        generator = torch.Generator(device=pipe.device).manual_seed(seed)
+    if rank_by_coverage:
+        rgb_files = sorted_views_by_mask_coverage(rgb_inpaint_dir, mask_dir)
+    else:
+        rgb_files = sorted(rgb_inpaint_dir.glob("*.png"))
+
+    if max_views is not None:
+        rgb_files = rgb_files[:max_views]
 
     # iterate RGB renders and corresponding mask files
-    rgb_files = sorted(rgb_inpaint_dir.glob("*.png"))
     for rgb_path in tqdm(rgb_files, desc="inpainting"):
         name = rgb_path.stem
         mask_path = mask_dir / f"{name}.png"
@@ -55,6 +77,9 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
 
         image = Image.open(rgb_path).convert("RGB")
         mask = Image.open(mask_path).convert("L")
+
+        if mask_dilate > 1:
+            mask = mask.filter(ImageFilter.MaxFilter(mask_dilate))
 
         # optionally resize to model expected size if specified
         if target_size:
@@ -66,23 +91,39 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         mask_np = np.where(mask_np > 127, 255, 0).astype(np.uint8)
         mask = Image.fromarray(mask_np)
 
-        mask = mask.filter(ImageFilter.MaxFilter(3))
-
         control_image = None
         depth_path = depth_dir / f"{name}.pt"
-        face_idx_path = face_idx_dir / f"{name}.pt"
-        if not depth_path.exists():
-            print(f"depth missing for {name}, skipping control image")
-        else:
-            depth_t = torch.load(depth_path)
+        if depth_path.exists():
+            depth_t = torch.load(depth_path, map_location="cpu")
             valid_mask = None
-            if face_idx_path.exists():
-                pix_to_face = torch.load(face_idx_path)
-                if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
-                    pix_to_face = pix_to_face.squeeze(-1)
-                valid_mask = (pix_to_face >= 0).cpu().numpy().astype(np.uint8)  # 1 visible, 0 background
-            # normalize/resample in helper
-            control_image = depth_tensor_to_control_pil(depth_t, target_size, valid_mask=valid_mask)
+
+            if face_idx_dir is not None:
+                face_idx_path = face_idx_dir / f"{name}.pt"
+                if face_idx_path.exists():
+                    pix_to_face = torch.load(face_idx_path, map_location="cpu")
+                    if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
+                        pix_to_face = pix_to_face.squeeze(-1)
+                    valid_mask = (pix_to_face >= 0).numpy().astype(np.uint8)
+
+            control_image = depth_tensor_to_control_pil(
+                depth_t,
+                target_size=target_size,
+                valid_mask=valid_mask,
+            )
+        else:
+            print(f"depth missing for {name}, continuing without control image")
+
+        view_idx = 0
+        if "_view" in name:
+            try:
+                view_idx = int(name.rsplit("_view", 1)[-1])
+            except Exception:
+                view_idx = 0
+
+        generator = None
+        if seed is not None:
+            local_seed = seed if same_noise_across_views else seed + view_idx
+            generator = torch.Generator(device=pipe.device).manual_seed(local_seed)
 
         out_img = pipe.inpaint(
             image=image,
