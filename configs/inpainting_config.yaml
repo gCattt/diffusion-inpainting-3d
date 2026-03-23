@@ -18,7 +18,7 @@ use_auth_token: null   # if private model, set your HF token string or use env v
 # views
 max_views: 1
 rank_views_by_mask_coverage: true
-mask_dilate: 5
+mask_dilate: 3
 same_noise_across_views: false
 
 # inference params

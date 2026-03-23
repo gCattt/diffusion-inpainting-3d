@@ -1,8 +1,11 @@
 # texture preprocessing
 
+mesh_dir: data/models
 input_dir: data/textures/original
 resized_dir: data/textures/resized
 corrupted_dir: data/textures/corrupted
+inpainted_dir : data/outputs/inpainted_views
+render_dir: data/renders
 
 size: 512
 

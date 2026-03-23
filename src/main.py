@@ -3,6 +3,7 @@ from src.texture.corrupt_textures import corrupt_main
 from src.rendering.renderer import renderer_main
 from src.texture.mask_projection import mask_projection_main
 from src.inpainting.batch_inpaint import inpaint_main
+from src.texture.backprojection import backprojection_main
 
 
 def main():
@@ -13,6 +14,8 @@ def main():
     mask_projection_main()
 
     inpaint_main()
+
+    backprojection_main()
 
     #render_main()
 
