@@ -4,7 +4,7 @@ import re
 
 def normalize_name(name: str) -> str:
     parts = name.split("_")
-    parts = [p for p in parts if p not in {"diff", "corrupted", "inpainted"}]
+    parts = [p for p in parts if p not in {"diff", "corrupted", "inpainted", "reconstructed", "final"}]
     parts = [p for p in parts if not re.fullmatch(r"view\d+", p)]
     return "_".join(parts)
 
