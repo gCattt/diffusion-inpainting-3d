@@ -35,7 +35,7 @@ def resize_main():
         files.extend(input_dir.glob(f"*.{ext.upper()}"))
 
     for f in files:
-        dst_file = resized_dir / f.name
+        dst_file = resized_dir / f"{f.stem}.png"
         resize_texture(f, dst_file, size, quality)
 
 

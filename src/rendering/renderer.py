@@ -16,7 +16,6 @@ from pytorch3d.renderer import (
     TexturesUV,
     FoVPerspectiveCameras
 )
-import torchvision.transforms as T
 from torchvision.utils import save_image
 from .camera_utils import create_cameras
 from src.utils.io_utils import find_mesh_for_texture
@@ -27,13 +26,12 @@ def load_config(path="configs/multiview_config.yaml"):
         return yaml.safe_load(f)
 
 def load_mesh(mesh_path, texture_path, device):
-    verts, faces, aux = load_obj(mesh_path)
+    verts, faces, aux = load_obj(str(mesh_path))
 
     texture = Image.open(texture_path).convert("RGB")
     texture_tensor = torch.from_numpy(
         np.array(texture)
     ).float() / 255.0
-
     texture_tensor = texture_tensor.unsqueeze(0).to(device)
 
     if aux.verts_uvs is None or faces.textures_idx is None:
@@ -79,10 +77,25 @@ def create_renderer(cfg, device, flat=False):
 
     return renderer
 
-def render_views(mesh_path, texture_path, renderer_shaded, renderer_flat, cameras,
-                rgb_dir, rgb_inpaint_dir, depth_dir, face_dir, bary_dir, cam_dir, cfg, device):
+def render_views(
+    mesh_path,
+    texture_path,
+    renderer_shaded,
+    renderer_flat,
+    cameras,
+    rgb_dir,
+    rgb_inpaint_dir=None,
+    depth_dir=None,
+    face_dir=None,
+    bary_dir=None,
+    cam_dir=None,
+    cfg=None,
+    device=None,
+    save_aux=True,
+):
     with torch.no_grad():
         mesh = load_mesh(mesh_path, texture_path, device)
+
         # normalize mesh scale
         scale = 1.0 / mesh.verts_packed().abs().max().item()
         mesh.scale_verts_(scale)
@@ -99,58 +112,123 @@ def render_views(mesh_path, texture_path, renderer_shaded, renderer_flat, camera
             images_shaded = renderer_shaded(mesh, cameras=cam)
             rgb_shaded = images_shaded[0, ..., :3]
 
-            images_flat = renderer_flat(mesh, cameras=cam)
-            rgb_flat = images_flat[0, ..., :3]
+            save_image(rgb_shaded.permute(2, 0, 1), rgb_dir / f"{mesh_name}_view{i:02d}.png")
 
-            fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
-            pix_to_face = fragments.pix_to_face[0]
-            bary_coords = fragments.bary_coords[0]
-            depth = fragments.zbuf[0, ..., 0]
+            if rgb_inpaint_dir is not None:
+                images_flat = renderer_flat(mesh, cameras=cam)
+                rgb_flat = images_flat[0, ..., :3]
+                save_image(rgb_flat.permute(2, 0, 1), rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
+                del images_flat
 
-            rgb_path = rgb_dir / f"{mesh_name}_view{i:02d}.png"
-            rgb_inpaint_path = rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png"            
-            depth_path = depth_dir / f"{mesh_name}_view{i:02d}.pt"
-            face_path = face_dir / f"{mesh_name}_view{i:02d}.pt"
-            bary_path = bary_dir / f"{mesh_name}_view{i:02d}.pt"
-            cam_path = cam_dir / f"{mesh_name}_view{i:02d}.pt"
+            if save_aux:
+                fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
+                pix_to_face = fragments.pix_to_face[0]
+                bary_coords = fragments.bary_coords[0]
+                depth = fragments.zbuf[0, ..., 0]
 
-            save_image(rgb_shaded.permute(2,0,1), rgb_path)
-            save_image(rgb_flat.permute(2,0,1), rgb_inpaint_path)
-            torch.save(depth.cpu(), depth_path)
-            torch.save(pix_to_face.cpu(), face_path)
-            torch.save(bary_coords.cpu(), bary_path)
-            torch.save(
-                {
-                    "R": cam.R.cpu(),
-                    "T": cam.T.cpu(),
-                },
-                cam_path,
-            )
+                torch.save(depth.cpu(), depth_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save(pix_to_face.cpu(), face_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save(bary_coords.cpu(), bary_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, cam_dir / f"{mesh_name}_view{i:02d}.pt")
 
-            del images_flat, images_shaded, fragments, depth
-            torch.cuda.empty_cache()
+                del fragments, depth
+
+            del images_shaded
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     del mesh
+
+def collect_texture_files(texture_dir: Path, extensions):
+    files = []
+    for ext in extensions:
+        ext = ext.lower().lstrip(".")
+        files.extend(texture_dir.glob(f"*.{ext}"))
+        files.extend(texture_dir.glob(f"*.{ext.upper()}"))
+    return sorted(set(files))
+
+def render_dataset(
+    mesh_dir,
+    texture_dir,
+    texture_glob,
+    rgb_dir,
+    rgb_inpaint_dir,
+    depth_dir,
+    face_dir,
+    bary_dir,
+    cam_dir,
+    cfg,
+    device,
+    renderer_shaded,
+    renderer_flat,
+    save_aux,
+    dataset_name,
+    cameras,
+):
+    rgb_dir.mkdir(parents=True, exist_ok=True)
+    if rgb_inpaint_dir is not None:
+        rgb_inpaint_dir.mkdir(parents=True, exist_ok=True)
+    if save_aux:
+        depth_dir.mkdir(parents=True, exist_ok=True)
+        face_dir.mkdir(parents=True, exist_ok=True)
+        bary_dir.mkdir(parents=True, exist_ok=True)
+        cam_dir.mkdir(parents=True, exist_ok=True)
+
+    metadata = []
+
+    # texture_glob can be a string or a list of extensions
+    if isinstance(texture_glob, (list, tuple)):
+        texture_paths = collect_texture_files(texture_dir, texture_glob)
+    else:
+        texture_paths = sorted(texture_dir.glob(texture_glob))
+
+    for texture_path in texture_paths:
+        mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
+        if mesh_path is None:
+            continue
+
+        render_views(
+            mesh_path=mesh_path,
+            texture_path=texture_path,
+            renderer_shaded=renderer_shaded,
+            renderer_flat=renderer_flat,
+            cameras=cameras,
+            rgb_dir=rgb_dir,
+            rgb_inpaint_dir=rgb_inpaint_dir,
+            depth_dir=depth_dir,
+            face_dir=face_dir,
+            bary_dir=bary_dir,
+            cam_dir=cam_dir,
+            cfg=cfg,
+            device=device,
+            save_aux=save_aux,
+        )
+
+        metadata.append(
+            {
+                "dataset": dataset_name,
+                "mesh": mesh_path.name,
+                "texture": texture_path.name,
+            }
+        )
+
+    return metadata
 
 def renderer_main():
     cfg = load_config()
 
     mesh_dir = Path(cfg["mesh_dir"])
-    texture_images_dir = Path(cfg["texture_images_dir"])
+    corrupted_texture_dir = Path(cfg["texture_images_dir"])
+    reference_texture_dir = Path(cfg.get("reference_texture_dir", "data/textures/resized"))
 
-    rgb_dir = Path(cfg["render_dir"]) / "rgb"
-    rgb_inpaint_dir = Path(cfg["render_dir"]) / "rgb_inpaint"
-    depth_dir = Path(cfg["render_dir"]) / "depth"
-    face_dir = Path(cfg["render_dir"]) / "face_idx"
-    bary_dir = Path(cfg["render_dir"]) / "barycentric"
-    cam_dir = Path(cfg["render_dir"]) / "cameras"
-
-    rgb_dir.mkdir(parents=True, exist_ok=True)
-    rgb_inpaint_dir.mkdir(parents=True, exist_ok=True)
-    depth_dir.mkdir(parents=True, exist_ok=True)
-    face_dir.mkdir(parents=True, exist_ok=True)
-    bary_dir.mkdir(parents=True, exist_ok=True)
-    cam_dir.mkdir(parents=True, exist_ok=True)
+    render_root = Path(cfg["render_dir"])
+    rgb_dir = render_root / "rgb"
+    rgb_inpaint_dir = render_root / "rgb_inpaint"
+    reference_rgb_dir = render_root / "reference_rgb"
+    depth_dir = render_root / "depth"
+    face_dir = render_root / "face_idx"
+    bary_dir = render_root / "barycentric"
+    cam_dir = render_root / "cameras"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -160,35 +238,45 @@ def renderer_main():
 
     metadata = []
 
-    for texture_path in texture_images_dir.glob("*_corrupted.png"):
-        mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
-        if mesh_path is None:
-            continue
+    metadata += render_dataset(
+        mesh_dir=mesh_dir,
+        texture_dir=corrupted_texture_dir,
+        texture_glob="*_corrupted.png",
+        rgb_dir=rgb_dir,
+        rgb_inpaint_dir=rgb_inpaint_dir,
+        depth_dir=depth_dir,
+        face_dir=face_dir,
+        bary_dir=bary_dir,
+        cam_dir=cam_dir,
+        cfg=cfg,
+        device=device,
+        renderer_shaded=renderer_shaded,
+        renderer_flat=renderer_flat,
+        save_aux=True,
+        dataset_name="corrupted",
+        cameras=cameras,
+    )
 
-        render_views(
-            mesh_path,
-            texture_path,
-            renderer_shaded,
-            renderer_flat,
-            cameras,
-            rgb_dir,
-            rgb_inpaint_dir,
-            depth_dir,
-            face_dir,
-            bary_dir,
-            cam_dir,
-            cfg,
-            device,
-        )
+    metadata += render_dataset(
+        mesh_dir=mesh_dir,
+        texture_dir=reference_texture_dir,
+        texture_glob=["jpg", "jpeg", "png"],
+        rgb_dir=reference_rgb_dir,
+        rgb_inpaint_dir=None,
+        depth_dir=depth_dir,
+        face_dir=face_dir,
+        bary_dir=bary_dir,
+        cam_dir=cam_dir,
+        cfg=cfg,
+        device=device,
+        renderer_shaded=renderer_shaded,
+        renderer_flat=renderer_flat,
+        save_aux=False,
+        dataset_name="reference",
+        cameras=cameras,
+    )
 
-        metadata.append(
-            {
-                "mesh": mesh_path.name,
-                "texture": texture_path.name,
-            }
-        )
-
-    metadata_path = Path(cfg["render_dir"]) / "metadata.json"
+    metadata_path = render_root / "metadata.json"
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
 
