@@ -11,6 +11,7 @@ from pytorch3d.renderer import (
     MeshRenderer,
     MeshRasterizer,
     SoftPhongShader,
+    HardFlatShader,
     PointLights,
     AmbientLights,
     TexturesUV,
@@ -60,19 +61,17 @@ def create_renderer(cfg, device, flat=False):
 
     if flat:
         lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
+        shader = HardFlatShader(device=device, cameras=None, lights=lights)
     else:
         lights = PointLights(device=device, location=[[2.0, 2.0, 2.0]])
+        shader = SoftPhongShader(device=device, cameras=None, lights=lights)
 
     renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
             cameras=None,
             raster_settings=raster_settings,
         ),
-        shader=SoftPhongShader(
-            device=device,
-            cameras=None,
-            lights=lights,
-        ),
+        shader=shader,
     )
 
     return renderer

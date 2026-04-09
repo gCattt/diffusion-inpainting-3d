@@ -8,10 +8,11 @@ face_idx_dir: data/renders/face_idx
 inpainted_dir: data/outputs/inpainted_views
 
 # model / device
+base_model_id: runwayml/stable-diffusion-inpainting
 #base_model_id: stable-diffusion-v1-5/stable-diffusion-inpainting
-base_model_id: sd2-community/stable-diffusion-2-inpainting
 #controlnet_model_id: lllyasviel/sd-controlnet-depth
-controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
+#base_model_id: sd2-community/stable-diffusion-2-inpainting
+#controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
 device: cpu   # or "cuda"
 use_auth_token: null   # if private model, set your HF token string or use env var
 
@@ -23,11 +24,15 @@ same_noise_across_views: false
 
 # inference params
 seed: 1234
-num_inference_steps: 40
-guidance_scale: 7.0
-controlnet_conditioning_scale: 1.5
-negative_prompt: "strong highlights, bright spots, overexposed areas"
-resize_to: 512   # optional: resize input to this square size before inpainting (None to skip)
+num_inference_steps: 60
+strength: 0.95 # 0.85 - 1.0
+guidance_scale: 5.5 # 4.5 - 7.0
+padding_mask_crop: null
+controlnet_conditioning_scale: 0.8
+negative_prompt: "overexposed, blank areas, artifacts, inconsistent lighting, unnatural material"
+resize_to: 512  # optional: resize input to this square size before inpainting (None to skip)
 
 # prompt default (override per run or set a general prompt)
-prompt: "photo‑realistic texture repair, consistent lighting and surface detail matching original texture, seamless, no hallucination or artifacts"
+#prompt: "photorealistic texture restoration, consistent lighting, preserve fine surface details, high-frequency details, natural microstructure, realistic material, no smoothing, no blur, no artifacts, seamless texture"
+#prompt: "repair only the missing regions, strictly preserve original texture outside mask, seamless continuation of existing surface, no global changes"
+prompt: "seamless texture continuation, identical material, same surface structure, match surrounding color and noise, no new objects, no global changes, preserve lighting and perspective"

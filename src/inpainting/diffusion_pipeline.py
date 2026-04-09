@@ -5,9 +5,9 @@ import numpy as np
 
 try:
     from diffusers import (
-        #StableDiffusionInpaintPipeline,
-        ControlNetModel,
-        StableDiffusionControlNetInpaintPipeline,
+        StableDiffusionInpaintPipeline,
+        #ControlNetModel,
+        #StableDiffusionControlNetInpaintPipeline,
         UniPCMultistepScheduler,
     )
 except Exception as e:
@@ -16,14 +16,12 @@ except Exception as e:
 
 class DiffusionInpaint:
     """
-    Minimal wrapper over Hugging Face diffusers StableDiffusionControlNetPipeline.
-
-    Use `control_image` parameter of `inpaint()` to pass the depth/control image (PIL).
+    Minimal wrapper over Hugging Face diffusers.
     """
     def __init__(
         self,
         base_model_id: str,
-        controlnet_model_id: str,
+        #controlnet_model_id: str,
         device: Optional[str] = None,
         torch_dtype: Optional[torch.dtype] = None,
         use_auth_token: Optional[str] = None,
@@ -44,10 +42,16 @@ class DiffusionInpaint:
             load_kwargs["use_auth_token"] = use_auth_token
 
         # load ControlNet model then build the ControlNet pipeline
-        controlnet = ControlNetModel.from_pretrained(controlnet_model_id, torch_dtype=self.torch_dtype, **load_kwargs)
-        self.pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+        #controlnet = ControlNetModel.from_pretrained(controlnet_model_id, torch_dtype=self.torch_dtype, **load_kwargs)
+        #self.pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+        #    base_model_id,
+        #    controlnet=controlnet,
+        #    torch_dtype=self.torch_dtype,
+        #    **load_kwargs,
+        #)
+
+        self.pipe = StableDiffusionInpaintPipeline.from_pretrained(
             base_model_id,
-            controlnet=controlnet,
             torch_dtype=self.torch_dtype,
             **load_kwargs,
         )
@@ -78,10 +82,12 @@ class DiffusionInpaint:
         image: Image.Image,
         mask: Image.Image,
         prompt: str,
-        control_image: Optional[Image.Image] = None,
+        #control_image: Optional[Image.Image] = None,
         num_inference_steps: int = 20,
+        strength: float = 0.75,
         guidance_scale: float = 7.5,
-        controlnet_conditioning_scale: float = 1.0,
+        padding_mask_crop: Optional[int] = None,
+        #controlnet_conditioning_scale: float = 1.0,
         negative_prompt: Optional[str] = None,
         generator: Optional[torch.Generator] = None,
     ) -> Image.Image:
@@ -97,18 +103,20 @@ class DiffusionInpaint:
             image = image.convert("RGB")
         if mask.mode != "L":
             mask = mask.convert("L")
-        if control_image is not None and control_image.mode != "RGB":
-            control_image = control_image.convert("RGB")
+        #if control_image is not None and control_image.mode != "RGB":
+        #    control_image = control_image.convert("RGB")
 
         # pipeline returns a dict-like object with 'images'
         result = self.pipe(
-            prompt=prompt,
             image=image,
             mask_image=mask,
-            control_image=control_image,
+            prompt=prompt,
+            #control_image=control_image,
             num_inference_steps=num_inference_steps,
+            strength=strength,
             guidance_scale=guidance_scale,
-            controlnet_conditioning_scale=controlnet_conditioning_scale,
+            padding_mask_crop=padding_mask_crop,
+            #controlnet_conditioning_scale=controlnet_conditioning_scale,
             negative_prompt=negative_prompt,
             generator=generator,
         )

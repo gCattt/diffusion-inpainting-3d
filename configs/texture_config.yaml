@@ -17,6 +17,6 @@ extensions:
 quality: 95
 
 corruption:
-  num_shapes: 6
-  line_thickness_min: 10
-  line_thickness_max: 40
+  num_shapes: 3
+  line_thickness_min: 4
+  line_thickness_max: 15
