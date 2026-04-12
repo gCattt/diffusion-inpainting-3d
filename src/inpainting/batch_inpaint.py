@@ -105,7 +105,12 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
             ).resize((target_size, target_size), Image.NEAREST)
             mesh_mask_bool = (np.array(mesh_mask_img) > 127)
 
-        final_mask_bool = corruption_mask_bool.copy()
+        #final_mask_bool = corruption_mask_bool.copy()
+
+        inner_mesh = Image.fromarray(mesh_mask_bool.astype(np.uint8)*255)\
+            .filter(ImageFilter.MinFilter(3))
+        inner_mesh = np.array(inner_mesh) > 127
+        final_mask_bool = corruption_mask_bool & inner_mesh # o mesh_mask_bool
 
         # optional dilation on the final binary mask
         if mask_dilate and mask_dilate > 1:
@@ -174,12 +179,14 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         # blend the inpainted output with the original image using a soft mask to avoid hard edges
         orig = np.array(image)
         gen = np.array(out_img)
-        m = (final_mask_bool.astype(np.float32))
+        #m = (final_mask_bool.astype(np.float32))
+        m = final_mask_bool[..., None]
 
-        m_soft = gaussian_filter(m, sigma=1.0)
-        m_soft = np.clip(m_soft, 0.0, 1.0)[..., None]
+        #m_soft = gaussian_filter(m, sigma=1.0)
+        #m_soft = np.clip(m_soft, 0.0, 1.0)[..., None]
 
-        blended = np.clip(gen * m_soft + orig * (1.0 - m_soft), 0, 255).astype(np.uint8)
+        #blended = np.clip(gen * m_soft + orig * (1.0 - m_soft), 0, 255).astype(np.uint8)
+        blended = np.where(m, gen, orig).astype(np.uint8)
 
         out_img = Image.fromarray(blended)
         out_path = inpainted_dir / f"{name}_inpainted.png"

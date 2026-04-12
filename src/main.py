@@ -14,12 +14,12 @@ def main():
     renderer_main()
     mask_projection_main()
 
-    inpaint_main()
+    # inpaint_main()
 
-    backprojection_main()
-    render_final_main()
+    # backprojection_main()
+    # render_final_main()
 
-    compare_renders_main()
+    # compare_renders_main()
 
 
 if __name__ == "__main__":

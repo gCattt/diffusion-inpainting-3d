@@ -77,6 +77,11 @@ class DiffusionInpaint:
         except Exception:
             pass
 
+        try:
+            self.pipe.enable_xformers_memory_efficient_attention()
+        except Exception:
+            pass
+
     def inpaint(
         self,
         image: Image.Image,
