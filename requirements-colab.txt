@@ -1,0 +1,10 @@
+diffusers==0.37.0
+accelerate==1.13.0
+transformers
+safetensors
+scipy
+scikit-image
+imageio
+tqdm
+PyYAML
+iopath

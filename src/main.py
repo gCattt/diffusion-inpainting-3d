@@ -7,20 +7,36 @@ from src.texture.backprojection import backprojection_main
 from src.rendering.render_final import render_final_main
 from src.evaluation.compare_renders import compare_renders_main
 
-def main():
-    resize_main()
-    corrupt_main()
 
-    renderer_main()
-    mask_projection_main()
+def main(stage="full"):
+    if stage in ["preprocess", "full"]:
+        resize_main()
+        corrupt_main()
 
-    # inpaint_main()
+    if stage in ["render", "full"]:
+        renderer_main()
+        mask_projection_main()
 
-    # backprojection_main()
-    # render_final_main()
+    if stage in ["inpaint", "full"]:
+        inpaint_main()
 
-    # compare_renders_main()
+    if stage in ["backproject", "full"]:
+        backprojection_main()
+
+    if stage in ["final", "full"]:
+        render_final_main()
+        compare_renders_main()
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--stage",
+        default="full",
+        choices=["preprocess", "render", "inpaint", "backproject", "final", "full"]
+    )
+    args = parser.parse_args()
+
+    main(args.stage) # python -m src.main --stage <...>
