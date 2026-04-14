@@ -71,16 +71,29 @@ class DiffusionInpaint:
         # move to device and enable memory-saving features (best-effort)
         self.pipe = self.pipe.to(self.device)
 
-        try:
-            # accelerate-backed offload if available
-            self.pipe.enable_model_cpu_offload()
-        except Exception:
-            pass
+        # try:
+        #     # accelerate-backed offload if available
+        #     self.pipe.enable_model_cpu_offload()
+        # except Exception:
+        #     pass
 
-        try:
-            self.pipe.enable_xformers_memory_efficient_attention()
-        except Exception:
-            pass
+        if self.device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+
+            try:
+                self.pipe.enable_xformers_memory_efficient_attention()
+            except Exception:
+                self.pipe.enable_attention_slicing()
+
+            try:
+                self.pipe.enable_vae_slicing()
+            except Exception:
+                pass
+
+        self.pipe.unet.to(memory_format=torch.channels_last)
+        self.pipe.unet.eval()
+        self.pipe.vae.eval()
 
     def inpaint(
         self,
@@ -88,9 +101,9 @@ class DiffusionInpaint:
         mask: Image.Image,
         prompt: str,
         #control_image: Optional[Image.Image] = None,
-        num_inference_steps: int = 20,
-        strength: float = 0.75,
-        guidance_scale: float = 7.5,
+        num_inference_steps: int = 40,
+        strength: float = 0.85,
+        guidance_scale: float = 5.0,
         padding_mask_crop: Optional[int] = None,
         #controlnet_conditioning_scale: float = 1.0,
         negative_prompt: Optional[str] = None,
@@ -111,20 +124,21 @@ class DiffusionInpaint:
         #if control_image is not None and control_image.mode != "RGB":
         #    control_image = control_image.convert("RGB")
 
-        # pipeline returns a dict-like object with 'images'
-        result = self.pipe(
-            image=image,
-            mask_image=mask,
-            prompt=prompt,
-            #control_image=control_image,
-            num_inference_steps=num_inference_steps,
-            strength=strength,
-            guidance_scale=guidance_scale,
-            padding_mask_crop=padding_mask_crop,
-            #controlnet_conditioning_scale=controlnet_conditioning_scale,
-            negative_prompt=negative_prompt,
-            generator=generator,
-        )
+        with torch.inference_mode():
+            # pipeline returns a dict-like object with 'images'
+            result = self.pipe(
+                image=image,
+                mask_image=mask,
+                prompt=prompt,
+                #control_image=control_image,
+                num_inference_steps=num_inference_steps,
+                strength=strength,
+                guidance_scale=guidance_scale,
+                padding_mask_crop=padding_mask_crop,
+                #controlnet_conditioning_scale=controlnet_conditioning_scale,
+                negative_prompt=negative_prompt,
+                generator=generator,
+            )
 
         out_img = result.images[0]
         return out_img

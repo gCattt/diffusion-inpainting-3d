@@ -43,6 +43,15 @@ def backproject_single_view(
     """
     H, W = pix_to_face.shape
     valid = pix_to_face >= 0
+    valid_inner = np.zeros_like(valid)
+    valid_inner[1:-1, 1:-1] = (
+        valid[1:-1, 1:-1] &
+        valid[:-2, 1:-1] &
+        valid[2:, 1:-1] &
+        valid[1:-1, :-2] &
+        valid[1:-1, 2:]
+    )
+    valid = valid_inner
     if valid.sum() == 0:
         return None, None
 
@@ -75,8 +84,13 @@ def backproject_single_view(
     flat_idx = v * tex_w + u
     src = image_np[ys, xs].astype(np.float32)
 
-    np.add.at(tex_acc, flat_idx, src * w[:, None])
-    np.add.at(w_acc, flat_idx, w)
+    # np.add.at(tex_acc, flat_idx, src * w[:, None])
+    # np.add.at(w_acc, flat_idx, w)
+
+    for c in range(3):
+        tex_acc[:, c] = np.bincount(flat_idx, weights=src[:, c] * w, minlength=tex_h * tex_w)
+
+    w_acc = np.bincount(flat_idx, weights=w, minlength=tex_h * tex_w)
 
     tex_acc = tex_acc.reshape(tex_h, tex_w, 3)
     w_acc = w_acc.reshape(tex_h, tex_w)
@@ -92,7 +106,8 @@ def reconstruct_texture_for_mesh(
     mask_dir: Path,
     output_path: Path,
 ):
-    base = np.array(Image.open(corrupted_texture_path).convert("RGB"), dtype=np.float32) / 255.0
+    with Image.open(corrupted_texture_path) as im:
+        base = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
     tex_h, tex_w = base.shape[:2]
 
     verts_uv, faces_uv = load_mesh_uv(mesh_path)
@@ -109,7 +124,8 @@ def reconstruct_texture_for_mesh(
         if not face_path.exists() or not bary_path.exists():
             continue
 
-        image_np = np.array(Image.open(img_path).convert("RGB"), dtype=np.float32) / 255.0
+        with Image.open(img_path) as im:
+            image_np = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
 
         pix_to_face = torch.load(face_path, map_location="cpu")
         if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
@@ -123,8 +139,10 @@ def reconstruct_texture_for_mesh(
 
         pixel_weight = None
         if mask_path.exists():
-            m = np.array(Image.open(mask_path).convert("L"), dtype=np.float32) / 255.0
-            pixel_weight = m
+            with Image.open(mask_path) as im:
+                m = np.array(im.convert("L"), dtype=np.float32) / 255.0
+            
+            pixel_weight = m.astype(np.float32)
 
         tex_acc, w_acc = backproject_single_view(
             image_np=image_np,

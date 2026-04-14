@@ -19,7 +19,8 @@ def sorted_views_by_mask_coverage(rgb_dir: Path, mask_dir: Path):
         mask_path = mask_dir / f"{name}.png"
         if not mask_path.exists():
             continue
-        m = np.array(Image.open(mask_path).convert("L"), dtype=np.uint8)
+        with Image.open(mask_path) as im:
+            m = np.array(im.convert("L"), dtype=np.uint8)
         score = int(m.sum())
         scored.append((score, rgb_path))
 
@@ -39,7 +40,7 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
 
     base_model_id = cfg.get("base_model_id", "runwayml/stable-diffusion-inpainting")
     #controlnet_model_id = cfg.get("controlnet_model_id", "lllyasviel/sd-controlnet-depth")
-    device = cfg.get("device", None)
+    device = cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu")
     use_auth = cfg.get("use_auth_token", None)
     seed = cfg.get("seed", None)
     steps = cfg.get("num_inference_steps", 40)
@@ -49,6 +50,7 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
     #control_scale = cfg.get("controlnet_conditioning_scale", 1.0)
     negative_prompt = cfg.get("negative_prompt", None)
     target_size = cfg.get("resize_to", None)
+    prompt = cfg.get("prompt", "")
 
     max_views = cfg.get("max_views", 1)
     rank_by_coverage = bool(cfg.get("rank_views_by_mask_coverage", True))
@@ -77,12 +79,15 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         mask_path = mask_dir / f"{name}.png"
         face_idx_path = face_idx_dir / f"{name}.pt" if face_idx_dir else None
 
-        if not mask_path.exists() or face_idx_path is None or not face_idx_path.exists():
+        if not mask_path.exists() or not face_idx_path or not face_idx_path.exists():
             print(f"missing data for {name}, skipping")
             continue
 
-        image = Image.open(rgb_path).convert("RGB")
-        raw_mask = Image.open(mask_path).convert("L")
+        with Image.open(rgb_path) as im:
+            image = im.convert("RGB").copy()
+
+        with Image.open(mask_path) as im:
+            raw_mask = im.convert("L").copy()
 
         pix_to_face = torch.load(face_idx_path, map_location="cpu")
         if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
@@ -165,7 +170,7 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         out_img = pipe.inpaint(
             image=image,
             mask=final_mask,
-            prompt=cfg.get("prompt", ""),
+            prompt=prompt,
             #control_image=control_image,
             generator=generator,
             num_inference_steps=steps,
@@ -176,12 +181,13 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
             negative_prompt=negative_prompt,
         )
 
-        # blend the inpainted output with the original image using a soft mask to avoid hard edges
+        # keep generated pixels only inside mask
         orig = np.array(image)
         gen = np.array(out_img)
         #m = (final_mask_bool.astype(np.float32))
-        m = final_mask_bool[..., None]
+        m = final_mask_bool[..., None].astype(np.bool_)
 
+        # blend the inpainted output with the original image using a soft mask to avoid hard edges
         #m_soft = gaussian_filter(m, sigma=1.0)
         #m_soft = np.clip(m_soft, 0.0, 1.0)[..., None]
 
