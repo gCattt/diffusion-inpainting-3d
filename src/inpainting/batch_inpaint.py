@@ -3,8 +3,9 @@ from PIL import Image, ImageFilter
 import torch
 import numpy as np
 import yaml
+import cv2
 from tqdm import tqdm
-from scipy.ndimage import gaussian_filter
+
 from .diffusion_pipeline import DiffusionInpaint, depth_tensor_to_control_pil
 
 
@@ -32,24 +33,25 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
 
     rgb_inpaint_dir = Path(cfg["rgb_inpaint_dir"])
     mask_dir = Path(cfg["mask_dir"])
-    #depth_dir = Path(cfg["depth_dir"])
+    depth_dir = Path(cfg["depth_dir"])
     face_idx_dir = cfg.get("face_idx_dir")
     face_idx_dir = Path(face_idx_dir) if face_idx_dir is not None else None
     inpainted_dir = Path(cfg["inpainted_dir"])
     inpainted_dir.mkdir(parents=True, exist_ok=True)
 
     base_model_id = cfg.get("base_model_id", "runwayml/stable-diffusion-inpainting")
-    #controlnet_model_id = cfg.get("controlnet_model_id", "lllyasviel/sd-controlnet-depth")
+    controlnet_model_id = cfg.get("controlnet_model_id", "lllyasviel/sd-controlnet-depth")
     device = cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu")
-    use_auth = cfg.get("use_auth_token", None)
-    seed = cfg.get("seed", None)
-    steps = cfg.get("num_inference_steps", 40)
+    use_auth = cfg.get("use_auth_token")
+
+    seed = cfg.get("seed")
+    steps = int(cfg.get("num_inference_steps", 25))
     strength = float(cfg.get("strength", 0.85))
-    guidance = cfg.get("guidance_scale", 5.0)
-    padding_mask_crop = cfg.get("padding_mask_crop", 32)
-    #control_scale = cfg.get("controlnet_conditioning_scale", 1.0)
-    negative_prompt = cfg.get("negative_prompt", None)
-    target_size = cfg.get("resize_to", None)
+    guidance = float(cfg.get("guidance_scale", 5.0))
+    padding_mask_crop = cfg.get("padding_mask_crop")
+    control_scale = float(cfg.get("controlnet_conditioning_scale", 0.4))
+    negative_prompt = cfg.get("negative_prompt")
+    target_size = cfg.get("resize_to")
     prompt = cfg.get("prompt", "")
 
     max_views = cfg.get("max_views", 1)
@@ -59,7 +61,7 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
 
     pipe = DiffusionInpaint(
         base_model_id=base_model_id,
-        #controlnet_model_id=controlnet_model_id, 
+        controlnet_model_id=controlnet_model_id, 
         device=device, 
         use_auth_token=use_auth
     )
@@ -110,49 +112,43 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
             ).resize((target_size, target_size), Image.NEAREST)
             mesh_mask_bool = (np.array(mesh_mask_img) > 127)
 
-        #final_mask_bool = corruption_mask_bool.copy()
-
-        inner_mesh = Image.fromarray(mesh_mask_bool.astype(np.uint8)*255)\
-            .filter(ImageFilter.MinFilter(3))
-        inner_mesh = np.array(inner_mesh) > 127
-        final_mask_bool = corruption_mask_bool & inner_mesh # o mesh_mask_bool
-
+        final_mask_bool = corruption_mask_bool & mesh_mask_bool
+    
         # optional dilation on the final binary mask
-        if mask_dilate and mask_dilate > 1:
-            k = mask_dilate + 1 if mask_dilate % 2 == 0 else mask_dilate
+        if mask_dilate and mask_dilate > 0:
+            k = mask_dilate if mask_dilate % 2 != 0 else mask_dilate + 1
             final_mask_bool = np.array(
                 Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
                 .filter(ImageFilter.MaxFilter(k))
             ) > 127
 
-        final_mask = Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
+        final_mask_for_sd = Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
+
+        # edge padding to remove gray background issue
+        image_np = np.array(image)
+        bg_mask_cv = (~mesh_mask_bool).astype(np.uint8) * 255
+        image_padded_np = cv2.inpaint(image_np, bg_mask_cv, inpaintRadius=20, flags=cv2.INPAINT_TELEA)
+        image_for_sd = Image.fromarray(image_padded_np)
 
         # neutralize background outside mesh
-        image_np = np.array(image)
-        image_np[~mesh_mask_bool] = 127
-        image = Image.fromarray(image_np)
+        # image_np = np.array(image)
+        # image_np[~mesh_mask_bool] = 127
+        # image = Image.fromarray(image_np)
 
-        # control_image = None
-        # depth_path = depth_dir / f"{name}.pt"
-        # if depth_path.exists():
-        #     depth_t = torch.load(depth_path, map_location="cpu")
-        #     valid_mask = None
+        control_image = None
+        depth_path = depth_dir / f"{name}.pt"
+        if depth_path.exists():
+            depth_t = torch.load(depth_path, map_location="cpu")
 
-        #     if face_idx_dir is not None:
-        #         face_idx_path = face_idx_dir / f"{name}.pt"
-        #         if face_idx_path.exists():
-        #             pix_to_face = torch.load(face_idx_path, map_location="cpu")
-        #             if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
-        #                 pix_to_face = pix_to_face.squeeze(-1)
-        #             valid_mask = (pix_to_face >= 0).numpy().astype(np.uint8)
+            valid_mask = mesh_mask_bool.astype(np.uint8)
 
-        #     control_image = depth_tensor_to_control_pil(
-        #         depth_t,
-        #         target_size=target_size,
-        #         valid_mask=valid_mask,
-        #     )
-        # else:
-        #     print(f"depth missing for {name}, continuing without control image")
+            control_image = depth_tensor_to_control_pil(
+                depth_t,
+                target_size=target_size,
+                valid_mask=valid_mask,
+            )
+        else:
+            print(f"depth missing for {name}, continuing without control image")
 
         view_idx = 0
         if "_view" in name:
@@ -168,30 +164,30 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
  
         # inpaint
         out_img = pipe.inpaint(
-            image=image,
-            mask=final_mask,
+            image=image_for_sd,
+            mask=final_mask_for_sd,
             prompt=prompt,
-            #control_image=control_image,
+            control_image=control_image,
             generator=generator,
             num_inference_steps=steps,
             strength=strength,
             guidance_scale=guidance,
             padding_mask_crop=padding_mask_crop,
-            #controlnet_conditioning_scale=control_scale,
+            controlnet_conditioning_scale=control_scale,
             negative_prompt=negative_prompt,
         )
 
         # keep generated pixels only inside mask
         orig = np.array(image)
         gen = np.array(out_img)
-        #m = (final_mask_bool.astype(np.float32))
+        # m = (final_mask_bool.astype(np.float32))
         m = final_mask_bool[..., None].astype(np.bool_)
 
         # blend the inpainted output with the original image using a soft mask to avoid hard edges
-        #m_soft = gaussian_filter(m, sigma=1.0)
-        #m_soft = np.clip(m_soft, 0.0, 1.0)[..., None]
+        # m_soft = gaussian_filter(m, sigma=1.0)
+        # m_soft = np.clip(m_soft, 0.0, 1.0)[..., None]
 
-        #blended = np.clip(gen * m_soft + orig * (1.0 - m_soft), 0, 255).astype(np.uint8)
+        # blended = np.clip(gen * m_soft + orig * (1.0 - m_soft), 0, 255).astype(np.uint8)
         blended = np.where(m, gen, orig).astype(np.uint8)
 
         out_img = Image.fromarray(blended)
