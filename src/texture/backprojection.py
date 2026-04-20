@@ -1,11 +1,14 @@
 from pathlib import Path
-from collections import defaultdict
-import numpy as np
-import torch
 from PIL import Image
+import torch
+import numpy as np
 import yaml
+import cv2
 from pytorch3d.io import load_obj
+from scipy.ndimage import distance_transform_edt
+
 from src.utils.io_utils import group_inpainted_by_mesh, resolve_assets_for_mesh
+
 
 def load_config(path="configs/texture_config.yaml"):
     with open(path, "r") as f:
@@ -15,7 +18,7 @@ def save_rgb(arr, path: Path):
     arr = np.clip(arr, 0.0, 1.0)
     Image.fromarray((arr * 255).astype(np.uint8)).save(path)
 
-def load_mesh_uv(mesh_path: Path):
+def load_mesh_uv_and_geometry(mesh_path: Path):
     verts, faces, aux = load_obj(str(mesh_path), load_textures=False)
 
     if aux.verts_uvs is None or faces.textures_idx is None:
@@ -23,7 +26,82 @@ def load_mesh_uv(mesh_path: Path):
 
     verts_uv = aux.verts_uvs.cpu().numpy().astype(np.float32)
     faces_uv = faces.textures_idx.cpu().numpy().astype(np.int64)
-    return verts_uv, faces_uv
+
+    verts_xyz = verts.cpu().numpy().astype(np.float32)
+    faces_xyz = faces.verts_idx.cpu().numpy().astype(np.int64)
+
+    tri = verts_xyz[faces_xyz]  # [F, 3, 3]
+    face_centroids = tri.mean(axis=1)
+
+    face_normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    face_normals /= (np.linalg.norm(face_normals, axis=1, keepdims=True) + 1e-8)
+
+    return verts_uv, faces_uv, face_centroids, face_normals
+
+def camera_center_from_RT(R, T):
+    R = R[0].cpu().numpy()
+    T = T[0].cpu().numpy()
+    return -R.T @ T
+
+def calculate_face_view_weights(face_centroids, face_normals, R, T, power=2.0, grazing_threshold=0.2):
+    cam_center = camera_center_from_RT(R, T)  # [3]
+
+    view_vec = cam_center[None, :] - face_centroids  # [F, 3]
+    view_vec /= (np.linalg.norm(view_vec, axis=1, keepdims=True) + 1e-8)
+
+    w = np.sum(face_normals * view_vec, axis=1)
+    w = np.clip(w, 0.0, 1.0)
+    w = 0.05 + 0.95 * (w ** 2)
+
+    return w.astype(np.float32)
+
+def pixel_confidence_from_mask(mask_u8):
+    m = mask_u8 > 127
+    conf = np.ones_like(mask_u8, dtype=np.float32)
+
+    if not m.any():
+        return conf
+
+    dist = distance_transform_edt(m).astype(np.float32)
+    if dist.max() > 1e-8:
+        inside = dist / dist.max()
+        conf[m] = 0.35 + 0.65 * inside[m]
+    else:
+        conf[m] = 0.35
+
+    return conf
+
+def fill_small_uv_holes(out, uv_mask, valid, max_radius=2):
+    holes = uv_mask & (~valid)
+    if not np.any(holes):
+        return out
+
+    # nearest valid pixel for every location
+    dist = distance_transform_edt(~valid)
+    _, idx = distance_transform_edt(~valid, return_indices=True)
+
+    fill = holes & (dist <= max_radius)
+    if np.any(fill):
+        out[fill] = out[idx[0][fill], idx[1][fill]]
+
+    return out
+
+def repair_local_outliers(out, uv_mask, valid, dark_thresh=0.10, diff_thresh=0.18):
+    repaired = out.copy()
+
+    img8 = (np.clip(out, 0.0, 1.0) * 255).astype(np.uint8)
+    med8 = cv2.medianBlur(img8, 3)
+    med = med8.astype(np.float32) / 255.0
+
+    gray = out.mean(axis=-1)
+    diff = np.abs(out - med).mean(axis=-1)
+
+    bad = uv_mask & valid & ((gray < dark_thresh) | (diff > diff_thresh))
+
+    if np.any(bad):
+        repaired[bad] = med[bad]
+
+    return repaired
 
 def backproject_single_view(
     image_np,
@@ -33,25 +111,10 @@ def backproject_single_view(
     faces_uv,
     tex_h,
     tex_w,
+    face_weights,
     pixel_weight=None,
 ):
-    """
-    image_np: [H, W, 3] float32 in [0,1]
-    pix_to_face: [H, W] int64
-    bary_coords: [H, W, 3] float32
-    pixel_weight: [H, W] float32 in [0,1], optional
-    """
-    H, W = pix_to_face.shape
     valid = pix_to_face >= 0
-    valid_inner = np.zeros_like(valid)
-    valid_inner[1:-1, 1:-1] = (
-        valid[1:-1, 1:-1] &
-        valid[:-2, 1:-1] &
-        valid[2:, 1:-1] &
-        valid[1:-1, :-2] &
-        valid[1:-1, 2:]
-    )
-    valid = valid_inner
     if valid.sum() == 0:
         return None, None
 
@@ -59,33 +122,25 @@ def backproject_single_view(
     face_ids = pix_to_face[valid].astype(np.int64)
     bary = bary_coords[valid].astype(np.float32)
 
-    tri_uv_idx = faces_uv[face_ids]  # [N, 3]
-    uv0 = verts_uv[tri_uv_idx[:, 0]]
-    uv1 = verts_uv[tri_uv_idx[:, 1]]
-    uv2 = verts_uv[tri_uv_idx[:, 2]]
-
+    tri_uv_idx = faces_uv[face_ids]
     uv = (
-        bary[:, 0:1] * uv0
-        + bary[:, 1:2] * uv1
-        + bary[:, 2:3] * uv2
+        bary[:, 0:1] * verts_uv[tri_uv_idx[:, 0]] +
+        bary[:, 1:2] * verts_uv[tri_uv_idx[:, 1]] +
+        bary[:, 2:3] * verts_uv[tri_uv_idx[:, 2]]
     )
 
     u = np.clip(np.round(uv[:, 0] * (tex_w - 1)).astype(np.int64), 0, tex_w - 1)
     v = np.clip(np.round((1.0 - uv[:, 1]) * (tex_h - 1)).astype(np.int64), 0, tex_h - 1)
+    flat_idx = v * tex_w + u
 
-    if pixel_weight is None:
-        w = np.ones((len(u),), dtype=np.float32)
-    else:
-        w = pixel_weight[ys, xs].astype(np.float32)
+    src = image_np[ys, xs].astype(np.float32)
+
+    w = face_weights[face_ids].astype(np.float32)
+    if pixel_weight is not None:
+        w = w * pixel_weight[ys, xs].astype(np.float32)
 
     tex_acc = np.zeros((tex_h * tex_w, 3), dtype=np.float32)
     w_acc = np.zeros((tex_h * tex_w,), dtype=np.float32)
-
-    flat_idx = v * tex_w + u
-    src = image_np[ys, xs].astype(np.float32)
-
-    # np.add.at(tex_acc, flat_idx, src * w[:, None])
-    # np.add.at(w_acc, flat_idx, w)
 
     for c in range(3):
         tex_acc[:, c] = np.bincount(flat_idx, weights=src[:, c] * w, minlength=tex_h * tex_w)
@@ -103,14 +158,26 @@ def reconstruct_texture_for_mesh(
     inpainted_paths,
     face_dir: Path,
     bary_dir: Path,
+    cam_dir: Path,
     mask_dir: Path,
     output_path: Path,
 ):
     with Image.open(corrupted_texture_path) as im:
         base = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
+    
     tex_h, tex_w = base.shape[:2]
+    verts_uv, faces_uv, face_centroids, face_normals = load_mesh_uv_and_geometry(mesh_path)
 
-    verts_uv, faces_uv = load_mesh_uv(mesh_path)
+    uv_mask = np.zeros((tex_h, tex_w), dtype=np.uint8)
+    u_coords = np.clip(np.round(verts_uv[:, 0] * (tex_w - 1)), 0, tex_w - 1).astype(np.int32)
+    v_coords = np.clip(np.round((1.0 - verts_uv[:, 1]) * (tex_h - 1)), 0, tex_h - 1).astype(np.int32)
+    pts = np.stack([u_coords, v_coords], axis=1)
+
+    for face in faces_uv:
+        poly = pts[face]
+        cv2.fillConvexPoly(uv_mask, poly, 1)
+
+    uv_mask = uv_mask.astype(bool)
 
     tex_acc_total = np.zeros_like(base, dtype=np.float32)
     w_acc_total = np.zeros((tex_h, tex_w), dtype=np.float32)
@@ -119,9 +186,10 @@ def reconstruct_texture_for_mesh(
         stem = img_path.stem.replace("_inpainted", "")
         face_path = face_dir / f"{stem}.pt"
         bary_path = bary_dir / f"{stem}.pt"
+        cam_path = cam_dir / f"{stem}.pt"
         mask_path = mask_dir / f"{stem}.png"
 
-        if not face_path.exists() or not bary_path.exists():
+        if not (face_path.exists() and bary_path.exists() and cam_path.exists()):
             continue
 
         with Image.open(img_path) as im:
@@ -137,12 +205,20 @@ def reconstruct_texture_for_mesh(
             bary_coords = bary_coords.squeeze(2)
         bary_coords = bary_coords.numpy().astype(np.float32)
 
+        cam_data = torch.load(cam_path, map_location="cpu")
+        face_weights = calculate_face_view_weights(
+            face_centroids=face_centroids,
+            face_normals=face_normals,
+            R=cam_data["R"],
+            T=cam_data["T"],
+            power=2.0,
+        )
+
         pixel_weight = None
         if mask_path.exists():
             with Image.open(mask_path) as im:
-                m = np.array(im.convert("L"), dtype=np.float32) / 255.0
-            
-            pixel_weight = m.astype(np.float32)
+                mask_u8 = np.array(im.convert("L"), dtype=np.uint8)
+            pixel_weight = pixel_confidence_from_mask(mask_u8)
 
         tex_acc, w_acc = backproject_single_view(
             image_np=image_np,
@@ -152,18 +228,20 @@ def reconstruct_texture_for_mesh(
             faces_uv=faces_uv,
             tex_h=tex_h,
             tex_w=tex_w,
+            face_weights=face_weights,
             pixel_weight=pixel_weight,
         )
 
-        if tex_acc is None:
-            continue
-
-        tex_acc_total += tex_acc
-        w_acc_total += w_acc
+        if tex_acc is not None:
+            tex_acc_total += tex_acc
+            w_acc_total += w_acc
 
     out = base.copy()
-    valid = w_acc_total > 0
+    valid = w_acc_total > 1e-6
     out[valid] = tex_acc_total[valid] / w_acc_total[valid, None]
+
+    out = fill_small_uv_holes(out, uv_mask=uv_mask, valid=valid, max_radius=2)
+    out = repair_local_outliers(out, uv_mask=uv_mask, valid=valid)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_rgb(out, output_path)
@@ -179,6 +257,7 @@ def backprojection_main():
     render_dir = Path(cfg["render_dir"])
     face_dir = render_dir / "face_idx"
     bary_dir = render_dir / "barycentric"
+    cam_dir = render_dir / "cameras"
     mask_dir = render_dir / "masks"
 
     out_dir = Path(cfg.get("reconstructed_texture_dir", "data/outputs/reconstructed_textures"))
@@ -205,6 +284,7 @@ def backprojection_main():
             inpainted_paths=paths,
             face_dir=face_dir,
             bary_dir=bary_dir,
+            cam_dir=cam_dir,
             mask_dir=mask_dir,
             output_path=out_path,
         )
