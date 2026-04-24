@@ -43,15 +43,16 @@ def camera_center_from_RT(R, T):
     T = T[0].cpu().numpy()
     return -R.T @ T
 
-def calculate_face_view_weights(face_centroids, face_normals, R, T, power=2.0, grazing_threshold=0.2):
+def calculate_face_view_weights(face_centroids, face_normals, R, T, power=2.0):
     cam_center = camera_center_from_RT(R, T)  # [3]
 
     view_vec = cam_center[None, :] - face_centroids  # [F, 3]
     view_vec /= (np.linalg.norm(view_vec, axis=1, keepdims=True) + 1e-8)
 
     w = np.sum(face_normals * view_vec, axis=1)
-    w = np.clip(w, 0.0, 1.0)
-    w = 0.05 + 0.95 * (w ** 2)
+    # w = np.clip(w, 0.0, 1.0)
+    # w = 0.05 + 0.95 * (w ** power)
+    w = np.clip(w, 0.0, 1.0) ** power
 
     return w.astype(np.float32)
 
@@ -65,12 +66,14 @@ def pixel_confidence_from_mask(mask_u8):
     dist = distance_transform_edt(m).astype(np.float32)
     if dist.max() > 1e-8:
         inside = dist / dist.max()
-        conf[m] = 0.35 + 0.65 * inside[m]
+        conf[m] = 0.35 + 0.65 * (1 - inside[m])
+        # conf[m] = 0.1 + 0.9 * inside[m]
     else:
         conf[m] = 0.35
 
     return conf
 
+# antialiasing and hole filling for small gaps in UV space
 def fill_small_uv_holes(out, uv_mask, valid, max_radius=2):
     holes = uv_mask & (~valid)
     if not np.any(holes):
@@ -129,9 +132,30 @@ def backproject_single_view(
         bary[:, 2:3] * verts_uv[tri_uv_idx[:, 2]]
     )
 
-    u = np.clip(np.round(uv[:, 0] * (tex_w - 1)).astype(np.int64), 0, tex_w - 1)
-    v = np.clip(np.round((1.0 - uv[:, 1]) * (tex_h - 1)).astype(np.int64), 0, tex_h - 1)
-    flat_idx = v * tex_w + u
+    # u = np.clip(np.round(uv[:, 0] * (tex_w - 1)).astype(np.int64), 0, tex_w - 1)
+    # v = np.clip(np.round((1.0 - uv[:, 1]) * (tex_h - 1)).astype(np.int64), 0, tex_h - 1)
+    # flat_idx = v * tex_w + u
+
+    u = uv[:, 0] * (tex_w - 1)
+    v = (1.0 - uv[:, 1]) * (tex_h - 1)
+
+    u0 = np.clip(np.floor(u).astype(np.int64), 0, tex_w - 1)
+    v0 = np.clip(np.floor(v).astype(np.int64), 0, tex_h - 1)
+    u1 = np.clip(u0 + 1, 0, tex_w - 1)
+    v1 = np.clip(v0 + 1, 0, tex_h - 1)
+
+    du = np.clip(u - u0, 0.0, 1.0)
+    dv = np.clip(v - v0, 0.0, 1.0)
+
+    w00 = (1 - du) * (1 - dv)
+    w10 = du * (1 - dv)
+    w01 = (1 - du) * dv
+    w11 = du * dv
+
+    idx00 = v0 * tex_w + u0
+    idx10 = v0 * tex_w + u1
+    idx01 = v1 * tex_w + u0
+    idx11 = v1 * tex_w + u1
 
     src = image_np[ys, xs].astype(np.float32)
 
@@ -142,10 +166,23 @@ def backproject_single_view(
     tex_acc = np.zeros((tex_h * tex_w, 3), dtype=np.float32)
     w_acc = np.zeros((tex_h * tex_w,), dtype=np.float32)
 
-    for c in range(3):
-        tex_acc[:, c] = np.bincount(flat_idx, weights=src[:, c] * w, minlength=tex_h * tex_w)
+    # for c in range(3):
+    #     tex_acc[:, c] = np.bincount(flat_idx, weights=src[:, c] * w, minlength=tex_h * tex_w)
 
-    w_acc = np.bincount(flat_idx, weights=w, minlength=tex_h * tex_w)
+    # w_acc = np.bincount(flat_idx, weights=w, minlength=tex_h * tex_w)
+
+    minlength = tex_h * tex_w
+
+    for c in range(3):
+        tex_acc[:, c] += np.bincount(idx00, weights=src[:, c] * w * w00, minlength=minlength)
+        tex_acc[:, c] += np.bincount(idx10, weights=src[:, c] * w * w10, minlength=minlength)
+        tex_acc[:, c] += np.bincount(idx01, weights=src[:, c] * w * w01, minlength=minlength)
+        tex_acc[:, c] += np.bincount(idx11, weights=src[:, c] * w * w11, minlength=minlength)
+
+    w_acc += np.bincount(idx00, weights=w * w00, minlength=minlength)
+    w_acc += np.bincount(idx10, weights=w * w10, minlength=minlength)
+    w_acc += np.bincount(idx01, weights=w * w01, minlength=minlength)
+    w_acc += np.bincount(idx11, weights=w * w11, minlength=minlength)
 
     tex_acc = tex_acc.reshape(tex_h, tex_w, 3)
     w_acc = w_acc.reshape(tex_h, tex_w)
@@ -238,10 +275,18 @@ def reconstruct_texture_for_mesh(
 
     out = base.copy()
     valid = w_acc_total > 1e-6
-    out[valid] = tex_acc_total[valid] / w_acc_total[valid, None]
+    out[valid] = tex_acc_total[valid] / (w_acc_total[valid, None] + 1e-8)
 
-    out = fill_small_uv_holes(out, uv_mask=uv_mask, valid=valid, max_radius=2)
-    out = repair_local_outliers(out, uv_mask=uv_mask, valid=valid)
+    out = fill_small_uv_holes(out, uv_mask=uv_mask, valid=valid, max_radius=1)
+
+    new_valid = valid | (np.any(out != base, axis=-1))
+    holes = (uv_mask & (~new_valid)).astype(np.uint8) * 255
+    if np.any(holes):
+        out_uint8 = (np.clip(out, 0, 1) * 255).astype(np.uint8)
+        out_refined = cv2.inpaint(out_uint8, holes, 3, cv2.INPAINT_TELEA)
+        out = out_refined.astype(np.float32) / 255.0
+
+    out = repair_local_outliers(out, uv_mask=uv_mask, valid=new_valid)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_rgb(out, output_path)
