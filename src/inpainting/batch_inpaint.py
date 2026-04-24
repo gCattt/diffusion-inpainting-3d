@@ -1,5 +1,5 @@
 from pathlib import Path
-from PIL import Image, ImageFilter
+from PIL import Image
 import torch
 import numpy as np
 import yaml
@@ -13,16 +13,32 @@ def load_config(path="configs/inpainting_config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-def sorted_views_by_mask_coverage(rgb_dir: Path, mask_dir: Path):
+def sorted_views_by_mask_coverage(rgb_dir: Path, mask_dir: Path, face_idx_dir: Path):
     scored = []
     for rgb_path in sorted(rgb_dir.glob("*.png")):
         name = rgb_path.stem
+    
         mask_path = mask_dir / f"{name}.png"
+        face_idx_path = face_idx_dir / f"{name}.pt"
+
         if not mask_path.exists():
             continue
+        if face_idx_path is None or not face_idx_path.exists():
+            continue
+
         with Image.open(mask_path) as im:
-            m = np.array(im.convert("L"), dtype=np.uint8)
-        score = int(m.sum())
+            corruption_mask_bool = (np.array(im.convert("L")) > 127)
+
+        # load mesh mask
+        pix_to_face = torch.load(face_idx_path, map_location="cpu")
+        if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
+            pix_to_face = pix_to_face.squeeze(-1)
+
+        mesh_mask_bool = (pix_to_face >= 0).numpy()
+
+        # valid_context = (~m).sum()
+        valid_context = ((~corruption_mask_bool) & mesh_mask_bool).sum()
+        score = valid_context
         scored.append((score, rgb_path))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -67,7 +83,7 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
     )
 
     if rank_by_coverage:
-        rgb_files = sorted_views_by_mask_coverage(rgb_inpaint_dir, mask_dir)
+        rgb_files = sorted_views_by_mask_coverage(rgb_inpaint_dir, mask_dir, face_idx_dir)
     else:
         rgb_files = sorted(rgb_inpaint_dir.glob("*.png"))
 
@@ -81,8 +97,10 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
         mask_path = mask_dir / f"{name}.png"
         face_idx_path = face_idx_dir / f"{name}.pt" if face_idx_dir else None
 
-        if not mask_path.exists() or not face_idx_path or not face_idx_path.exists():
-            print(f"missing data for {name}, skipping")
+        if not mask_path.exists():
+            continue
+
+        if face_idx_path is None or not face_idx_path.exists():
             continue
 
         with Image.open(rgb_path) as im:
@@ -116,11 +134,17 @@ def inpaint_main(cfg_path="configs/inpainting_config.yaml"):
     
         # optional dilation on the final binary mask
         if mask_dilate and mask_dilate > 0:
-            k = mask_dilate if mask_dilate % 2 != 0 else mask_dilate + 1
-            final_mask_bool = np.array(
-                Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
-                .filter(ImageFilter.MaxFilter(k))
-            ) > 127
+            # k = mask_dilate if mask_dilate % 2 != 0 else mask_dilate + 1
+            # final_mask_bool = np.array(
+            #     Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
+            #     .filter(ImageFilter.MaxFilter(k))
+            # ) > 127
+
+            k = mask_dilate
+            # kernel = np.ones((k, k), np.uint8)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+            dilated = cv2.dilate(final_mask_bool.astype(np.uint8), kernel) > 0
+            final_mask_bool = dilated & mesh_mask_bool
 
         final_mask_for_sd = Image.fromarray((final_mask_bool.astype(np.uint8) * 255))
 
