@@ -27,7 +27,7 @@ def load_config(path="configs/multiview_config.yaml"):
         return yaml.safe_load(f)
 
 def load_mesh(mesh_path, texture_path, device):
-    verts, faces, aux = load_obj(str(mesh_path))
+    verts, faces, aux = load_obj(str(mesh_path), load_textures=False)
 
     texture = Image.open(texture_path).convert("RGB")
     texture_tensor = torch.from_numpy(
@@ -63,7 +63,7 @@ def create_renderer(cfg, device, flat=False):
         lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
         shader = HardFlatShader(device=device, cameras=None, lights=lights)
     else:
-        lights = PointLights(device=device, location=[[2.0, 2.0, 2.0]])
+        lights = PointLights(device=device, location=[[0.0, 5.0, 0.0]])
         shader = SoftPhongShader(device=device, cameras=None, lights=lights)
 
     renderer = MeshRenderer(
@@ -96,17 +96,27 @@ def render_views(
         mesh = load_mesh(mesh_path, texture_path, device)
 
         # normalize mesh scale
-        scale = 1.0 / mesh.verts_packed().abs().max().item()
+        # scale = 1.0 / mesh.verts_packed().abs().max().item()
+        verts = mesh.verts_packed()
+        center = (verts.min(0).values + verts.max(0).values) * 0.5
+        # mesh.offset_verts_(-center[None, :])
+        offsets = -center.expand(verts.shape[0], 3)
+        mesh.offset_verts_(offsets)
+
+        radius = (mesh.verts_packed().pow(2).sum(dim=1).sqrt().max().item())
+        scale = 1.0 / (radius + 1e-8)
         mesh.scale_verts_(scale)
 
         mesh_name = mesh_path.stem
 
         for i in range(cfg["num_views"]):
-            cam = FoVPerspectiveCameras(
-                device=device,
-                R=cameras.R[i:i+1],
-                T=cameras.T[i:i+1],
-            )
+            # cam = FoVPerspectiveCameras(
+            #     device=device,
+            #     R=cameras.R[i:i+1],
+            #     T=cameras.T[i:i+1],
+            # )
+
+            cam = cameras[[i]]
 
             images_shaded = renderer_shaded(mesh, cameras=cam)
             rgb_shaded = images_shaded[0, ..., :3]

@@ -49,8 +49,16 @@ def render_final_main():
 
         mesh = load_mesh(mesh_path, texture_path, device)
 
-        # scale mesh exactly as in the intermediate renderer
-        scale = 1.0 / mesh.verts_packed().abs().max().item()
+        # scale mesh
+        # scale = 1.0 / mesh.verts_packed().abs().max().item()
+        verts = mesh.verts_packed()
+        center = (verts.min(0).values + verts.max(0).values) * 0.5
+        # mesh.offset_verts_(-center[None, :])
+        offsets = -center.expand(verts.shape[0], 3)
+        mesh.offset_verts_(offsets)
+
+        radius = (mesh.verts_packed().pow(2).sum(dim=1).sqrt().max().item())
+        scale = 1.0 / (radius + 1e-8)
         mesh.scale_verts_(scale)
 
         mesh_name = mesh_path.stem

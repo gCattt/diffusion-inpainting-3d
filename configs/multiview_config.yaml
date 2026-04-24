@@ -11,9 +11,12 @@ final_renders_dir: data/outputs/final_renders
 evaluation_dir: data/outputs/evaluation
 outputs_dir: data/outputs
 
-num_views: 4
+num_views: 12
 image_size: 512
 
-camera_distance: 2.0
+camera_distance: 2.7 # 2.5 - 3.0
+
 elevation_range: [10, 60]
 azimuth_range: [0, 360]
+
+fov: 60.0 # 45.0 - 75.0, field of view for rendering cameras, higher = wider angle and more distortion, lower = narrower angle and less distortion
