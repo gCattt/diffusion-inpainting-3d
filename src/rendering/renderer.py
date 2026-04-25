@@ -1,6 +1,5 @@
 from pathlib import Path
 from PIL import Image
-import yaml
 import torch
 import json
 import numpy as np
@@ -14,17 +13,38 @@ from pytorch3d.renderer import (
     HardFlatShader,
     PointLights,
     AmbientLights,
-    TexturesUV,
-    FoVPerspectiveCameras
+    TexturesUV
 )
 from torchvision.utils import save_image
+
 from .camera_utils import create_cameras
+from src.utils.config_utils import load_yaml_config
 from src.utils.io_utils import find_mesh_for_texture
 
 
-def load_config(path="configs/multiview_config.yaml"):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+def create_renderer(cfg, device, flat=False):
+    raster_settings = RasterizationSettings(
+        image_size=cfg["image_size"],
+        blur_radius=0.0,
+        faces_per_pixel=1,
+    )
+
+    if flat:
+        lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
+        shader = HardFlatShader(device=device, cameras=None, lights=lights)
+    else:
+        lights = PointLights(device=device, location=[[0.0, 5.0, 0.0]])
+        shader = SoftPhongShader(device=device, cameras=None, lights=lights)
+
+    renderer = MeshRenderer(
+        rasterizer=MeshRasterizer(
+            cameras=None,
+            raster_settings=raster_settings,
+        ),
+        shader=shader,
+    )
+
+    return renderer
 
 def load_mesh(mesh_path, texture_path, device):
     verts, faces, aux = load_obj(str(mesh_path), load_textures=False)
@@ -52,29 +72,17 @@ def load_mesh(mesh_path, texture_path, device):
 
     return mesh
 
-def create_renderer(cfg, device, flat=False):
-    raster_settings = RasterizationSettings(
-        image_size=cfg["image_size"],
-        blur_radius=0.0,
-        faces_per_pixel=1,
-    )
+def normalize_mesh(mesh):
+    verts = mesh.verts_packed()
 
-    if flat:
-        lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
-        shader = HardFlatShader(device=device, cameras=None, lights=lights)
-    else:
-        lights = PointLights(device=device, location=[[0.0, 5.0, 0.0]])
-        shader = SoftPhongShader(device=device, cameras=None, lights=lights)
+    center = (verts.min(0).values + verts.max(0).values) * 0.5
+    mesh.offset_verts_(-center.expand_as(verts))
 
-    renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=None,
-            raster_settings=raster_settings,
-        ),
-        shader=shader,
-    )
+    radius = verts.norm(dim=1).max().item()
+    scale = 1.0 / (radius + 1e-8)
+    mesh.scale_verts_(scale)
 
-    return renderer
+    return mesh
 
 def render_views(
     mesh_path,
@@ -92,35 +100,17 @@ def render_views(
     device=None,
     save_aux=True,
 ):
+    mesh = load_mesh(mesh_path, texture_path, device)
+    mesh = normalize_mesh(mesh)
+    mesh_name = mesh_path.stem
+
+    num_views = cfg["num_views"]
     with torch.no_grad():
-        mesh = load_mesh(mesh_path, texture_path, device)
-
-        # normalize mesh scale
-        # scale = 1.0 / mesh.verts_packed().abs().max().item()
-        verts = mesh.verts_packed()
-        center = (verts.min(0).values + verts.max(0).values) * 0.5
-        # mesh.offset_verts_(-center[None, :])
-        offsets = -center.expand(verts.shape[0], 3)
-        mesh.offset_verts_(offsets)
-
-        radius = (mesh.verts_packed().pow(2).sum(dim=1).sqrt().max().item())
-        scale = 1.0 / (radius + 1e-8)
-        mesh.scale_verts_(scale)
-
-        mesh_name = mesh_path.stem
-
-        for i in range(cfg["num_views"]):
-            # cam = FoVPerspectiveCameras(
-            #     device=device,
-            #     R=cameras.R[i:i+1],
-            #     T=cameras.T[i:i+1],
-            # )
-
+        for i in range(num_views):
             cam = cameras[[i]]
 
             images_shaded = renderer_shaded(mesh, cameras=cam)
             rgb_shaded = images_shaded[0, ..., :3]
-
             save_image(rgb_shaded.permute(2, 0, 1), rgb_dir / f"{mesh_name}_view{i:02d}.png")
 
             if rgb_inpaint_dir is not None:
@@ -143,10 +133,10 @@ def render_views(
                 del fragments, depth
 
             del images_shaded
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
     del mesh
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 def collect_texture_files(texture_dir: Path, extensions):
     files = []
@@ -194,6 +184,7 @@ def render_dataset(
     for texture_path in texture_paths:
         mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
         if mesh_path is None:
+            print(f"missing mesh for {texture_path.name}, skipping")
             continue
 
         render_views(
@@ -224,11 +215,11 @@ def render_dataset(
     return metadata
 
 def renderer_main():
-    cfg = load_config()
+    cfg = load_yaml_config("configs/multiview_config.yaml")
 
     mesh_dir = Path(cfg["mesh_dir"])
     corrupted_texture_dir = Path(cfg["texture_images_dir"])
-    reference_texture_dir = Path(cfg.get("reference_texture_dir", "data/textures/resized"))
+    reference_texture_dir = Path(cfg["reference_texture_dir"])
 
     render_root = Path(cfg["render_dir"])
     rgb_dir = render_root / "rgb"

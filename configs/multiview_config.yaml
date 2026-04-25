@@ -6,16 +6,15 @@ texture_images_dir: data/textures/corrupted/images
 texture_masks_dir: data/textures/corrupted/masks
 render_dir: data/renders
 reference_render_dir: data/renders/reference_rgb
-reconstructed_dir: data/outputs/reconstructed_textures
+outputs_dir: data/outputs
+reconstructed_textures_dir: data/outputs/reconstructed_textures
 final_renders_dir: data/outputs/final_renders
 evaluation_dir: data/outputs/evaluation
-outputs_dir: data/outputs
 
 num_views: 12
 image_size: 512
 
-camera_distance: 2.7 # 2.5 - 3.0
-
+camera_distance: 2.7 # 2.5 - 3.0, distance of camera from object center
 elevation_range: [10, 60]
 azimuth_range: [0, 360]
 

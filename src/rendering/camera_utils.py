@@ -23,21 +23,6 @@ def create_cameras(cfg, device):
     dist = cfg["camera_distance"]
     fov = cfg.get("fov", 60.0)
 
-    # elev = torch.linspace(
-    #     cfg["elevation_range"][0],
-    #     cfg["elevation_range"][1],
-    #     num_views
-    # )
-
-    # azim = torch.linspace(
-    #     cfg["azimuth_range"][0],
-    #     cfg["azimuth_range"][1],
-    #     num_views
-    # )
-
-    # elev = torch.linspace(15, 45, num_views)
-    # azim = torch.linspace(0, 360, num_views, endpoint=False)
-
     elev, azim = fibonacci_sphere(num_views)
 
     R, T = look_at_view_transform(dist=dist, elev=elev, azim=azim)

@@ -16,7 +16,7 @@ def find_mesh(mesh_name: str, mesh_dir: Path):
             candidates.append(p)
     return candidates[0] if candidates else None
 
-def find_mesh_for_texture(texture_path, mesh_dir):
+def find_mesh_for_texture(texture_path: Path, mesh_dir: Path):
     target = normalize_name(texture_path.stem)
     candidates = []
     for p in mesh_dir.glob("*.obj"):
