@@ -78,7 +78,7 @@ def normalize_mesh(mesh):
     center = (verts.min(0).values + verts.max(0).values) * 0.5
     mesh.offset_verts_(-center.expand_as(verts))
 
-    radius = verts.norm(dim=1).max().item()
+    radius = mesh.verts_packed().norm(dim=1).max().item()
     scale = 1.0 / (radius + 1e-8)
     mesh.scale_verts_(scale)
 
