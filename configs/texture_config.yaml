@@ -1,20 +1,15 @@
-# texture preprocessing
-
 mesh_dir: data/models
-input_dir: data/textures/original
-resized_dir: data/textures/resized
-corrupted_dir: data/textures/corrupted
-inpainted_dir : data/outputs/inpainted_views
-render_dir: data/renders
+textures_original_dir: data/textures/original
+textures_resized_dir: data/textures/resized
+textures_corrupted_dir: data/textures/corrupted
+renders_dir: data/renders
+inpainted_views_dir : data/outputs/inpainted_views
 
-size: 512
+extensions: [jpg, jpeg, png]
 
-extensions:
-  - jpg
-  - jpeg
-  - png
-
-quality: 95
+resize:
+  size: 512
+  quality: 95
 
 corruption:
   num_shapes: 3

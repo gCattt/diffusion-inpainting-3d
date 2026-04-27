@@ -2,19 +2,19 @@ import random
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
-import yaml
+
+from src.utils.config_utils import load_yaml_config
 
 
-def load_config(path="configs/texture_config.yaml"):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
-
-def generate_random_mask(width, height, num_shapes, thickness_min=10, thickness_max=40):
+def generate_random_mask(width, height, num_shapes, thickness_min=4, thickness_max=30):
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
 
     for _ in range(num_shapes):
-        shape_type = random.choice(["rectangle", "ellipse", "line"])
+        shape_type = random.choices(
+            ["rectangle", "ellipse", "line"],
+            weights=[0.5, 0.4, 0.1]
+        )[0]
 
         x1 = random.randint(0, width - 1)
         y1 = random.randint(0, height - 1)
@@ -40,45 +40,49 @@ def apply_corruption(texture, mask):
 
     return Image.fromarray(corrupted)
 
-def corrupt_single_texture(input_path, corrupted_path, mask_path, num_shapes, thickness_min=10, thickness_max=40):
+def corrupt_single_texture(input_path, images_path, masks_path, num_shapes, thickness_min=4, thickness_max=30):
     texture = Image.open(input_path).convert("RGB")
     w, h = texture.size
 
     mask = generate_random_mask(w, h, num_shapes, thickness_min, thickness_max)
     corrupted = apply_corruption(texture, mask)
 
-    corrupted.save(corrupted_path)
-    mask.save(mask_path)
+    corrupted.save(images_path)
+    mask.save(masks_path)
 
 def corrupt_main():
-    cfg = load_config()
+    cfg = load_yaml_config("configs/texture_config.yaml")
+    corrupt_cfg = cfg["corruption"]
 
-    input_dir = Path(cfg["resized_dir"])
-    output_dir = Path(cfg["corrupted_dir"])
+    input_dir = Path(cfg["textures_resized_dir"])
+    output_dir = Path(cfg["textures_corrupted_dir"])
 
-    corrupted_dir = output_dir / "images"
-    mask_dir = output_dir / "masks"
-    corrupted_dir.mkdir(parents=True, exist_ok=True)
-    mask_dir.mkdir(parents=True, exist_ok=True)
+    images_dir = output_dir / "images"
+    masks_dir = output_dir / "masks"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    masks_dir.mkdir(parents=True, exist_ok=True)
 
-    num_shapes = cfg["corruption"]["num_shapes"]
-    thickness_min = cfg["corruption"].get("line_thickness_min", 10)
-    thickness_max = cfg["corruption"].get("line_thickness_max", 40)
+    num_shapes = corrupt_cfg["num_shapes"]
+    thickness_min = corrupt_cfg["line_thickness_min"]
+    thickness_max = corrupt_cfg["line_thickness_max"]
 
-    extensions = [ext.lower() for ext in cfg["extensions"]]
+    extensions = [
+        ext.lower().lstrip(".")
+        for ext in cfg.get("extensions", [])
+    ]
 
     files = []
     for ext in extensions:
         files.extend(input_dir.glob(f"*.{ext}"))
         files.extend(input_dir.glob(f"*.{ext.upper()}"))
 
-    for img_path in files:
+    for img_path in sorted(files):
         name = img_path.stem
 
-        corrupted_path = corrupted_dir / f"{name}_corrupted.png"
-        mask_path = mask_dir / f"{name}_mask.png"
+        images_path = images_dir / f"{name}_corrupted.png"
+        masks_path = masks_dir / f"{name}_mask.png"
 
-        corrupt_single_texture(img_path, corrupted_path, mask_path, num_shapes, thickness_min, thickness_max)
+        corrupt_single_texture(img_path, images_path, masks_path, num_shapes, thickness_min, thickness_max)
 
 
 if __name__ == "__main__":

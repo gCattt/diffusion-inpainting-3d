@@ -1,11 +1,8 @@
 from pathlib import Path
 from PIL import Image
-import yaml
 
+from src.utils.config_utils import load_yaml_config
 
-def load_config(path="configs/texture_config.yaml"):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
 
 def resize_texture(src_path: Path, dst_path: Path, size: int, quality=95):
     with Image.open(src_path) as img:
@@ -19,22 +16,26 @@ def resize_texture(src_path: Path, dst_path: Path, size: int, quality=95):
         img.save(dst_path, quality=quality)
 
 def resize_main():
-    cfg = load_config()
+    cfg = load_yaml_config("configs/texture_config.yaml")
+    resize_cfg = cfg["resize"]
 
-    input_dir = Path(cfg["input_dir"])
-    resized_dir = Path(cfg["resized_dir"])
+    input_dir = Path(cfg["textures_original_dir"])
+    resized_dir = Path(cfg["textures_resized_dir"])
 
-    size = cfg["size"]
-    quality = cfg.get("quality", 95)
+    size = resize_cfg["size"]
+    quality = resize_cfg.get("quality", 95)
 
-    extensions = [ext.lower() for ext in cfg["extensions"]]
+    extensions = [
+        ext.lower().lstrip(".")
+        for ext in cfg.get("extensions", [])
+    ]
 
     files = []
     for ext in extensions:
         files.extend(input_dir.glob(f"*.{ext}"))
         files.extend(input_dir.glob(f"*.{ext.upper()}"))
 
-    for f in files:
+    for f in sorted(files):
         dst_file = resized_dir / f"{f.stem}.png"
         resize_texture(f, dst_file, size, quality)
 
