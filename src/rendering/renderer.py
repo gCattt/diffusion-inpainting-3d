@@ -96,7 +96,7 @@ def render_views(
     face_dir=None,
     bary_dir=None,
     cam_dir=None,
-    cfg=None,
+    # cfg=None,
     device=None,
     save_aux=True,
 ):
@@ -104,7 +104,8 @@ def render_views(
     mesh = normalize_mesh(mesh)
     mesh_name = mesh_path.stem
 
-    num_views = cfg["num_views"]
+    # num_views = cfg["num_views"]
+    num_views = len(cameras.R)
     with torch.no_grad():
         for i in range(num_views):
             cam = cameras[[i]]
@@ -175,7 +176,6 @@ def render_dataset(
 
     metadata = []
 
-    # texture_glob can be a string or a list of extensions
     if isinstance(texture_glob, (list, tuple)):
         texture_paths = collect_texture_files(texture_dir, texture_glob)
     else:
@@ -199,7 +199,7 @@ def render_dataset(
             face_dir=face_dir,
             bary_dir=bary_dir,
             cam_dir=cam_dir,
-            cfg=cfg,
+            # cfg=cfg,
             device=device,
             save_aux=save_aux,
         )

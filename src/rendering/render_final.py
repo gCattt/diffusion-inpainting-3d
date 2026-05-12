@@ -39,7 +39,8 @@ def render_final_main():
         out_dir = final_renders_dir / mesh_name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        num_views = cfg["num_views"]
+        # num_views = cfg["num_views"]
+        num_views = len(cameras.R)
         with torch.no_grad():
             for i in range(num_views):
                 cam = cameras[[i]]

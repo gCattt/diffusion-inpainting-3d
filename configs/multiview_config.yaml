@@ -11,11 +11,20 @@ reconstructed_textures_dir: data/outputs/reconstructed_textures
 final_renders_dir: data/outputs/final_renders
 evaluation_dir: data/outputs/evaluation
 
-num_views: 12
+# num_views: 16
 image_size: 512
 
-camera_distance: 2.7 # 2.5 - 3.0, distance of camera from object center
-elevation_range: [10, 60]
-azimuth_range: [0, 360]
+turntable_rings: 3
+views_per_ring: 8
 
-fov: 60.0 # 45.0 - 75.0, field of view for rendering cameras, higher = wider angle and more distortion, lower = narrower angle and less distortion
+elev_mid: 0.0
+elev_high: 45.0
+elev_low: -45.0
+
+add_top_bottom: true
+elev_top: 85.0
+elev_bottom: -85.0
+
+camera_distance: 2.7   # 2.5 - 3.0, distance of camera from object center
+
+fov: 55.0   # 45.0 - 75.0, field of view for rendering cameras, higher = wider angle and more distortion, lower = narrower angle and less distortion
