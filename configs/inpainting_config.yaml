@@ -5,32 +5,46 @@ rgb_inpaint_dir: data/renders/rgb_inpaint
 mask_dir: data/renders/masks
 depth_dir: data/renders/depth
 face_idx_dir: data/renders/face_idx
+barycentric_dir: data/renders/barycentric
+cameras_dir: data/renders/cameras
 inpainted_dir: data/outputs/inpainted_views
 
 # model / device
-base_model_id: runwayml/stable-diffusion-inpainting
-#base_model_id: stable-diffusion-v1-5/stable-diffusion-inpainting
-controlnet_model_id: lllyasviel/sd-controlnet-depth
-#base_model_id: sd2-community/stable-diffusion-2-inpainting
-#controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
-device: cpu   # or "cuda"
+base_model_id: runwayml/stable-diffusion-inpainting 
+# stable-diffusion-v1-5/stable-diffusion-inpainting
+# stable-diffusion-v1-5/stable-diffusion-v1-5 (StableDiffusionControlNetPipeline)
+controlnet_model_id: lllyasviel/sd-controlnet-depth 
+# lllyasviel/control_v11f1p_sd15_depth (StableDiffusionControlNetPipeline)
+# base_model_id: sd2-community/stable-diffusion-2-inpainting
+# controlnet_model_id: thibaud/controlnet-sd21-depth-diffusers
+ip_adapter_model: h94/IP-Adapter
+ip_adapter_weight: ip-adapter_sd15.bin
+device: cuda   # cpu
 use_auth_token: null   # if private model, set your HF token string or use env var
 
 # views
-max_views: 4
-rank_views_by_mask_coverage: true
-mask_dilate: 3 # dilate mask by this many pixels to ensure better coverage of inpainted region, set to 0 to skip
+max_views: -1
+mask_dilate: 12   # dilate mask by this many pixels to ensure better coverage of inpainted region, set to 0 to skip
+# 10 con color-bleeding, 15/20 con più libertà ma rischio di incoerenze
 same_noise_across_views: false
 
 # inference params
 seed: 1234
-num_inference_steps: 60 # 25 - 100, higher = better quality but slower
-strength: 0.95 # 0.85 - 1.0, higher = more aggressive inpainting, lower = more conservative and closer to original
-guidance_scale: 5.5 # 5.0 - 7.0, higher = more closely follow prompt, lower = more freedom but less prompt guidance
-padding_mask_crop: null
-controlnet_conditioning_scale: 0.6 # 0.4 - 0.8, higher = more closely follow control image (depth), lower = more freedom but less structure guidance
-negative_prompt: "blurry, out of focus, overexposed, artifacts, inconsistent lighting, unnatural material"
+num_inference_steps: 50   # 25 - 100, higher = better quality but slower
+refinement_steps: 43
+strength: 0.9   # 0.85 - 1.0, higher = more aggressive inpainting, lower = more conservative and closer to original
+# 0.85/0.9 con color-bleeding, 1.0 con più libertà ma rischio di incoerenze
+refinement_strength: 0.2 # 0.15
+guidance_scale: 6.0   # 5.0 - 7.0, higher = more closely follow prompt, lower = more freedom but less prompt guidance
+refinement_guidance_scale: 5.0
+padding_mask_crop: 320 # 256
+controlnet_conditioning_scale: 0.7   # 0.5 - 1.0, higher = more closely follow control image (depth)
+ip_adapter_scale: 0.1
+negative_prompt: "oversmoothed, blurry, depth of field, out of focus, low quality, overexposed, artifacts, inconsistent lighting, unnatural material, glitches, deformations, color mismatch, low resolution"
 resize_to: 512  # optional: resize input to this square size before inpainting (None to skip)
+max_angle: 1.1   # ~57°, prima 0.9 50°
+min_overlap: 0.1  # 10% face overlap between views to be considered neighbors for multi-view inpainting
+bary_thresh: 0.25 # 0.1/0.2
+refinement_thresh: 0.30 # 0.25 # 0.35
 
-# prompt default (override per run or set a general prompt)
-prompt: "seamless texture continuation, identical material, same surface structure, high-frequency details, match surrounding color and noise, no new objects, no global changes, preserve lighting and perspective"
+prompt: "surface material, seamless texture continuation, preserve lighting and perspective, match surrounding color and pattern, high-frequency details"
