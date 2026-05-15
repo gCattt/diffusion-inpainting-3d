@@ -1,23 +1,23 @@
 {
   "final": {
-    "count": 4,
-    "mse_mean": 0.00010103188924404094,
-    "psnr_mean": 40.737098288261976,
-    "ssim_mean": 0.9948749989271164,
-    "masked_mse_mean": 0.03344912512693554,
-    "masked_psnr_mean": 16.35337004117442,
-    "masked_ssim_mean": 0.994770959019661
+    "count": 26,
+    "mse_mean": 7.21079636124299e-06,
+    "psnr_mean": Infinity,
+    "ssim_mean": 0.9972385878746326,
+    "masked_mse_mean": 0.0006471393650057367,
+    "masked_psnr_mean": Infinity,
+    "masked_ssim_mean": 0.9983765620451707
   },
   "corrupted": {
-    "count": 4,
-    "mse_mean": 0.00017212165221280884,
-    "psnr_mean": 38.263956331748034,
-    "ssim_mean": 0.9935586303472519
+    "count": 26,
+    "mse_mean": 0.00035473239922094555,
+    "psnr_mean": Infinity,
+    "ssim_mean": 0.9872374030259939
   },
   "inpainted": {
-    "count": 1,
-    "mse_mean": 0.21632938086986542,
-    "psnr_mean": 6.648844926593008,
-    "ssim_mean": 0.7820907235145569
+    "count": 26,
+    "mse_mean": 0.00935736362141772,
+    "psnr_mean": 20.45812900040496,
+    "ssim_mean": 0.9185235935908097
   }
 }

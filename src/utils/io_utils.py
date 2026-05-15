@@ -4,7 +4,7 @@ import re
 
 def normalize_name(name: str) -> str:
     parts = name.split("_")
-    parts = [p for p in parts if p not in {"diff", "corrupted", "inpainted", "reconstructed", "final"}]
+    parts = [p for p in parts if p not in {"diff", "corrupted", "inpainted", "reconstructed", "final", "mask"}]
     parts = [p for p in parts if not re.fullmatch(r"view\d+", p)]
     return "_".join(parts)
 
@@ -38,6 +38,20 @@ def find_corrupted_texture(mesh_name: str, texture_dir: Path):
 
     return None
 
+def find_corruption_mask(mesh_name: str, mask_dir: Path):
+    target = normalize_name(mesh_name)
+
+    search_dirs = [mask_dir]
+    if (mask_dir / "masks").exists():
+        search_dirs.insert(0, mask_dir / "masks")
+
+    for d in search_dirs:
+        for p in d.glob("*_mask.png"):
+            if normalize_name(p.stem) == target:
+                return p
+
+    return None
+
 def group_inpainted_by_mesh(inpainted_dir: Path):
     groups = {}
     for p in inpainted_dir.glob("*_inpainted.png"):
@@ -45,7 +59,8 @@ def group_inpainted_by_mesh(inpainted_dir: Path):
         groups.setdefault(base, []).append(p)
     return groups
 
-def resolve_assets_for_mesh(mesh_name: str, mesh_dir: Path, texture_dir: Path):
+def resolve_assets_for_mesh(mesh_name: str, mesh_dir: Path, texture_dir: Path, mask_dir: Path):
     mesh_path = find_mesh(mesh_name, mesh_dir)
     texture_path = find_corrupted_texture(mesh_name, texture_dir)
-    return mesh_path, texture_path
+    mask_path = find_corruption_mask(mesh_name, mask_dir)
+    return mesh_path, texture_path, mask_path

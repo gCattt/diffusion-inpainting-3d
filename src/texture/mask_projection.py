@@ -2,14 +2,11 @@ from pathlib import Path
 import torch
 import numpy as np
 from PIL import Image
-import yaml
 from pytorch3d.io import load_obj
+
 from src.utils.io_utils import find_mesh_for_texture
+from src.utils.config_utils import load_yaml_config
 
-
-def load_config(path="configs/multiview_config.yaml"):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
 
 def load_uv_mask(mask_path, device):
     mask = Image.open(mask_path).convert("L")
@@ -42,7 +39,6 @@ def project_mask(
 
     faces = faces_uv[face_ids]
 
-    # process in batches to avoid huge allocations
     tex_h, tex_w = uv_mask.shape
     start = 0
     while start < num_valid:
@@ -77,8 +73,8 @@ def save_mask(mask, path):
     Image.fromarray(mask).save(path)
 
 def mask_projection_main():
-    cfg = load_config()
-
+    cfg = load_yaml_config("configs/multiview_config.yaml")
+    
     mesh_dir = Path(cfg["mesh_dir"])
     texture_images_dir = Path(cfg["texture_images_dir"])
     texture_masks_dir = Path(cfg["texture_masks_dir"])
@@ -117,15 +113,13 @@ def mask_projection_main():
             bary_file = bary_dir / f"{mesh_name}_{view_id}.pt"
 
             pix_to_face = torch.load(face_file)
-            # pix_to_face may be [H, W, faces_per_pixel] -> squeeze last dim if it's 1
             if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
                 pix_to_face = pix_to_face.squeeze(-1)
             pix_to_face = pix_to_face.to(device).long()
 
             bary_coords = torch.load(bary_file)
-            # bary_coords may be [H, W, faces_per_pixel, 3] or [H, W, 3]
             if bary_coords.ndim == 4 and bary_coords.shape[2] == 1:
-                bary_coords = bary_coords.squeeze(2)   # -> [H, W, 3]
+                bary_coords = bary_coords.squeeze(2)
             bary_coords = bary_coords.to(device).float()
 
             view_mask = project_mask(
