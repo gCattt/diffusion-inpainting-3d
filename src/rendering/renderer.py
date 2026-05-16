@@ -104,6 +104,26 @@ def render_views(
     mesh = normalize_mesh(mesh)
     mesh_name = mesh_path.stem
 
+    # Create subdirectories for this mesh
+    mesh_rgb_dir = rgb_dir / mesh_name
+    mesh_rgb_dir.mkdir(parents=True, exist_ok=True)
+
+    if rgb_inpaint_dir is not None:
+        mesh_rgb_inpaint_dir = rgb_inpaint_dir / mesh_name
+        mesh_rgb_inpaint_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        mesh_rgb_inpaint_dir = None
+
+    if save_aux:
+        mesh_depth_dir = depth_dir / mesh_name
+        mesh_depth_dir.mkdir(parents=True, exist_ok=True)
+        mesh_face_dir = face_dir / mesh_name
+        mesh_face_dir.mkdir(parents=True, exist_ok=True)
+        mesh_bary_dir = bary_dir / mesh_name
+        mesh_bary_dir.mkdir(parents=True, exist_ok=True)
+        mesh_cam_dir = cam_dir / mesh_name
+        mesh_cam_dir.mkdir(parents=True, exist_ok=True)
+
     # num_views = cfg["num_views"]
     num_views = len(cameras.R)
     with torch.no_grad():
@@ -112,12 +132,12 @@ def render_views(
 
             images_shaded = renderer_shaded(mesh, cameras=cam)
             rgb_shaded = images_shaded[0, ..., :3]
-            save_image(rgb_shaded.permute(2, 0, 1), rgb_dir / f"{mesh_name}_view{i:02d}.png")
+            save_image(rgb_shaded.permute(2, 0, 1), mesh_rgb_dir / f"{mesh_name}_view{i:02d}.png")
 
-            if rgb_inpaint_dir is not None:
+            if mesh_rgb_inpaint_dir is not None:
                 images_flat = renderer_flat(mesh, cameras=cam)
                 rgb_flat = images_flat[0, ..., :3]
-                save_image(rgb_flat.permute(2, 0, 1), rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
+                save_image(rgb_flat.permute(2, 0, 1), mesh_rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
                 del images_flat
 
             if save_aux:
@@ -126,10 +146,10 @@ def render_views(
                 bary_coords = fragments.bary_coords[0]
                 depth = fragments.zbuf[0, ..., 0]
 
-                torch.save(depth.cpu(), depth_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save(pix_to_face.cpu(), face_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save(bary_coords.cpu(), bary_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, cam_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save(depth.cpu(), mesh_depth_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save(pix_to_face.cpu(), mesh_face_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save(bary_coords.cpu(), mesh_bary_dir / f"{mesh_name}_view{i:02d}.pt")
+                torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, mesh_cam_dir / f"{mesh_name}_view{i:02d}.pt")
 
                 del fragments, depth
 

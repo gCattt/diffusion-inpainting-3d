@@ -3,6 +3,7 @@ from PIL import Image
 import torch
 import numpy as np
 import cv2
+import re
 from pytorch3d.io import load_obj
 
 from src.utils.io_utils import group_inpainted_by_mesh, resolve_assets_for_mesh
@@ -173,14 +174,21 @@ def reconstruct_texture_for_mesh(
 
     for img_path in sorted(inpainted_paths):
         stem = img_path.stem.replace("_inpainted", "")
+        mesh_name = img_path.parent.name
+
         try:
-            pix_to_face = torch.load(face_dir / f"{stem}.pt", map_location="cpu").squeeze().numpy()
-            bary_coords = torch.load(bary_dir / f"{stem}.pt", map_location="cpu").squeeze().numpy()
-            cam_data = torch.load(cam_dir / f"{stem}.pt", map_location="cpu")
-            
-            with Image.open(mask_dir / f"{stem}.png") as m_img:
+            face_file = face_dir / mesh_name / f"{stem}.pt"
+            bary_file = bary_dir / mesh_name / f"{stem}.pt"
+            cam_file = cam_dir / mesh_name / f"{stem}.pt"
+            mask_file = mask_dir / mesh_name / f"{stem}.png"
+
+            pix_to_face = torch.load(face_file, map_location="cpu").squeeze().numpy()
+            bary_coords = torch.load(bary_file, map_location="cpu").squeeze().numpy()
+            cam_data = torch.load(cam_file, map_location="cpu")
+
+            with Image.open(mask_file) as m_img:
                 view_mask = np.array(m_img.convert("L"), dtype=np.float32) / 255.0
-            
+
             with Image.open(img_path) as im:
                 image_np = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
         except Exception as e:

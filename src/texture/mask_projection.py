@@ -95,6 +95,10 @@ def mask_projection_main():
 
         mesh_name = mesh_path.stem
 
+        # Create subdirectory for this mesh
+        mesh_mask_out_dir = mask_out_dir / mesh_name
+        mesh_mask_out_dir.mkdir(parents=True, exist_ok=True)
+
         verts, faces, aux = load_obj(mesh_path, load_textures=False)
 
         verts_uv = aux.verts_uvs.to(device)
@@ -107,10 +111,22 @@ def mask_projection_main():
 
         uv_mask = load_uv_mask(mask_path, device)
 
-        for face_file in face_dir.glob(f"{mesh_name}_view*.pt"):
+        face_dir_mesh = face_dir / mesh_name
+        bary_dir_mesh = bary_dir / mesh_name
+
+        if not face_dir_mesh.exists() or not bary_dir_mesh.exists():
+            print(f"missing mesh-specific render data for {mesh_name}, skipping")
+            continue
+
+        face_files = sorted(face_dir_mesh.glob(f"{mesh_name}_view*.pt"))
+        if not face_files:
+            print(f"no view files in {face_dir_mesh}, skipping {mesh_name}")
+            continue
+
+        for face_file in face_files:
             view_id = face_file.stem.split("_")[-1]
 
-            bary_file = bary_dir / f"{mesh_name}_{view_id}.pt"
+            bary_file = bary_dir_mesh / f"{mesh_name}_{view_id}.pt"
 
             pix_to_face = torch.load(face_file)
             if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
@@ -130,7 +146,7 @@ def mask_projection_main():
                 verts_uv,
             )
 
-            out_path = mask_out_dir / f"{mesh_name}_{view_id}.png"
+            out_path = mesh_mask_out_dir / f"{mesh_name}_{view_id}.png"
             save_mask(view_mask, out_path)
 
 

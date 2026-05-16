@@ -4,7 +4,7 @@ import re
 
 def normalize_name(name: str) -> str:
     parts = name.split("_")
-    parts = [p for p in parts if p not in {"diff", "corrupted", "inpainted", "reconstructed", "final", "mask"}]
+    parts = [p for p in parts if p not in {"diff", "diffuse", "albedo", "color", "texture", "corrupted", "inpainted", "reconstructed", "final", "mask"}]
     parts = [p for p in parts if not re.fullmatch(r"view\d+", p)]
     return "_".join(parts)
 
@@ -54,9 +54,10 @@ def find_corruption_mask(mesh_name: str, mask_dir: Path):
 
 def group_inpainted_by_mesh(inpainted_dir: Path):
     groups = {}
-    for p in inpainted_dir.glob("*_inpainted.png"):
-        base = normalize_name(p.stem)
-        groups.setdefault(base, []).append(p)
+    # Use rglob to find files recursively (in mesh subdirectories)
+    for p in inpainted_dir.rglob("*_inpainted.png"):
+        mesh_name = p.parent.name
+        groups.setdefault(mesh_name, []).append(p)
     return groups
 
 def resolve_assets_for_mesh(mesh_name: str, mesh_dir: Path, texture_dir: Path, mask_dir: Path):

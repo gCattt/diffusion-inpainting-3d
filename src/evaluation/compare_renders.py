@@ -62,10 +62,10 @@ def collect_stage_paths(cfg):
     inpainted_dir = outputs_root / "inpainted_views"
     final_dir = outputs_root / "final_renders"
 
-    reference_paths = sorted(reference_dir.glob("*.png"))
-    corrupted_paths = sorted(corrupted_dir.glob("*.png"))
-    mask_paths = sorted(mask_dir.glob("*.png"))
-    inpainted_paths = sorted(inpainted_dir.glob("*.png"))
+    reference_paths = sorted(reference_dir.rglob("*.png"))
+    corrupted_paths = sorted(corrupted_dir.rglob("*.png"))
+    mask_paths = sorted(mask_dir.rglob("*.png"))
+    inpainted_paths = sorted(inpainted_dir.rglob("*.png"))
     final_paths = sorted(final_dir.rglob("*_final.png"))
 
     return {
@@ -134,7 +134,7 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
 
     stages = collect_stage_paths(cfg)
 
-    rows = []
+    rows = defaultdict(list)  # Group by mesh_name
     summary = defaultdict(list)
 
     for key, final_path in stages["final"].items():
@@ -142,6 +142,7 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
         if reference_path is None:
             continue
 
+        mesh_name = final_path.parent.name
         corrupted_path = stages["corrupted"].get(key)
         inpainted_path = stages["inpainted"].get(key)
         mask_path = stages["mask"].get(key)
@@ -158,7 +159,7 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
         )
         final_metrics["key"] = key
         final_metrics["stage"] = "final"
-        rows.append(final_metrics)
+        rows[mesh_name].append(final_metrics)
         summary["final"].append(final_metrics)
 
         if corrupted_path is not None:
@@ -167,7 +168,7 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
                 corrupted_metrics = compute_metrics(ref, corrupted_img)
                 corrupted_metrics["key"] = key
                 corrupted_metrics["stage"] = "corrupted"
-                rows.append(corrupted_metrics)
+                rows[mesh_name].append(corrupted_metrics)
                 summary["corrupted"].append(corrupted_metrics)
 
         if inpainted_path is not None:
@@ -176,7 +177,7 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
                 inpainted_metrics = compute_metrics(ref, inpainted_img)
                 inpainted_metrics["key"] = key
                 inpainted_metrics["stage"] = "inpainted"
-                rows.append(inpainted_metrics)
+                rows[mesh_name].append(inpainted_metrics)
                 summary["inpainted"].append(inpainted_metrics)
 
         # Comparison image: reference | corrupted | inpainted | final
@@ -195,9 +196,15 @@ def compare_renders_main(cfg_path="configs/multiview_config.yaml"):
         labels.append("final")
 
         comp = make_side_by_side(pil_images, labels)
-        comp.save(comp_dir / f"{key.replace('/', '_')}_comparison.png")
+        mesh_comp_dir = comp_dir / mesh_name
+        mesh_comp_dir.mkdir(parents=True, exist_ok=True)
+        comp.save(mesh_comp_dir / f"{key.replace('/', '_')}_comparison.png")
 
-    write_csv(rows, metrics_dir / "per_image_metrics.csv")
+    # Write per-image metrics CSV for each mesh
+    for mesh_name, mesh_rows in rows.items():
+        mesh_metrics_dir = metrics_dir / mesh_name
+        mesh_metrics_dir.mkdir(parents=True, exist_ok=True)
+        write_csv(mesh_rows, mesh_metrics_dir / "per_image_metrics.csv")
 
     summary_out = {}
     for stage, vals in summary.items():

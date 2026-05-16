@@ -1,12 +1,12 @@
 {
   "final": {
     "count": 26,
-    "mse_mean": 7.21079636124299e-06,
+    "mse_mean": 7.2871457446738604e-06,
     "psnr_mean": Infinity,
-    "ssim_mean": 0.9972385878746326,
-    "masked_mse_mean": 0.0006471393650057367,
+    "ssim_mean": 0.9972358644008636,
+    "masked_mse_mean": 0.0006502710300712631,
     "masked_psnr_mean": Infinity,
-    "masked_ssim_mean": 0.9983765620451707
+    "masked_ssim_mean": 0.9983716423694904
   },
   "corrupted": {
     "count": 26,
@@ -15,9 +15,9 @@
     "ssim_mean": 0.9872374030259939
   },
   "inpainted": {
-    "count": 26,
-    "mse_mean": 0.00935736362141772,
-    "psnr_mean": 20.45812900040496,
-    "ssim_mean": 0.9185235935908097
+    "count": 25,
+    "mse_mean": 0.009605837631970643,
+    "psnr_mean": 20.276091887161215,
+    "ssim_mean": 0.9163640379905701
   }
 }

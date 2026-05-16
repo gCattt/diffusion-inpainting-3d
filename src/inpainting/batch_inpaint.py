@@ -13,10 +13,12 @@ from src.utils.config_utils import load_yaml_config
 
 def sorted_views_by_mask_coverage(rgb_dir: Path, mask_dir: Path, face_idx_dir: Path):
     scored = []
-    for rgb_path in sorted(rgb_dir.glob("*.png")):
+    for rgb_path in sorted(rgb_dir.rglob("*.png")):
         name = rgb_path.stem
-        mask_path = mask_dir / f"{name}.png"
-        face_idx_path = face_idx_dir / f"{name}.pt"
+        mesh_name = rgb_path.parent.name
+
+        mask_path = mask_dir / mesh_name / f"{name}.png"
+        face_idx_path = face_idx_dir / mesh_name / f"{name}.pt"
 
         if not mask_path.exists():
             continue
@@ -107,12 +109,18 @@ def compute_overlap(curr_faces, curr_mask, ref_faces, cfg):
 def precompute_views_data(rgb_dir, mask_dir, face_idx_dir, barycentric_dir, cameras_dir):
     views_data = {}
 
-    for rgb_path in sorted(rgb_dir.glob("*.png")):
+    # Use rglob to find files recursively (in mesh subdirectories)
+    for rgb_path in sorted(rgb_dir.rglob("*.png")):
         name = rgb_path.stem
-        mask_path = mask_dir / f"{name}.png"
-        face_idx_path = face_idx_dir / f"{name}.pt"
-        bary_path = barycentric_dir / f"{name}.pt"
-        cam_path = cameras_dir / f"{name}.pt"
+        
+        # Extract mesh_name from parent directory
+        mesh_name = rgb_path.parent.name
+        
+        # Look for corresponding files in mesh subdirectories
+        mask_path = mask_dir / mesh_name / f"{name}.png"
+        face_idx_path = face_idx_dir / mesh_name / f"{name}.pt"
+        bary_path = barycentric_dir / mesh_name / f"{name}.pt"
+        cam_path = cameras_dir / mesh_name / f"{name}.pt"
 
         if not (mask_path.exists() and face_idx_path.exists() and bary_path.exists() and cam_path.exists()):
             continue
@@ -150,6 +158,7 @@ def precompute_views_data(rgb_dir, mask_dir, face_idx_dir, barycentric_dir, came
             "cam": cam,
             "corruption_mask": corruption_mask,
             "coverage": valid_context,
+            "mesh_name": mesh_name,
         }
 
     return views_data
@@ -168,46 +177,38 @@ def order_views_greedy(views_data, cfg):
     remaining = views
 
     max_angle = cfg.get("max_angle", 1.0)
-
     while len(remaining) > 0:
         best_score = -1
         best_idx = -1
 
         for i, (name, v) in enumerate(remaining):
-            curr_mask = v["corruption_mask"]
+            scores = []
             curr_cam = v["cam"]
             curr_faces = v["faces"]
-            curr_bary = v["bary"]
+            curr_mask = v["corruption_mask"]
 
-            scores = []
-
-            # compare with already selected views
-            for ref_name, ref in ordered:
-                ref_cam = ref["cam"]
+            for _, ref in ordered:
                 ref_faces = ref["faces"]
-                ref_bary = ref["bary"]
+                ref_cam = ref["cam"]
 
                 angle = camera_similarity(curr_cam, ref_cam)
                 if angle > max_angle:
                     continue
 
-                # overlap = compute_overlap_old(curr_faces, curr_bary, ref_faces, ref_bary, curr_mask, cfg)
                 overlap = compute_overlap(curr_faces, curr_mask, ref_faces, cfg)
                 if overlap < cfg.get("min_overlap", 0.1):
                     continue
 
                 angle_score = 1 - angle / max_angle
                 score = overlap * 0.8 + angle_score * 0.2
-
                 scores.append(score)
 
             if len(scores) > 0:
-                best_local_score = max(scores) # np.mean(sorted(scores, reverse=True)[:2])
+                best_local_score = max(scores)
             else:
                 best_local_score = 0.0
 
-            score_total = best_local_score
-            score_total += 0.05 * (v["coverage"] / (best_coverage + 1e-6))
+            score_total = best_local_score + 0.05 * (v["coverage"] / (best_coverage + 1e-6))
 
             if score_total > best_score:
                 best_score = score_total
@@ -273,7 +274,7 @@ def inpaint_main():
 
         rgb_files = order_views_greedy(views_data, cfg)
     else:
-        rgb_files = sorted(rgb_inpaint_dir.glob("*.png"))
+        rgb_files = sorted(rgb_inpaint_dir.rglob("*.png"))
 
     max_views = cfg.get("max_views", 1)
     if isinstance(max_views, int) and max_views > 0:
@@ -389,7 +390,9 @@ def inpaint_main():
         image_for_sd = Image.fromarray(image_ready_for_sd) # image_padded_np
 
         control_image = None
-        depth_path = depth_dir / f"{name}.pt"
+        mesh_name = views_data[name]["mesh_name"]
+        depth_path = depth_dir / mesh_name / f"{name}.pt"
+
         if depth_path.exists():
             depth_t = torch.load(depth_path, map_location="cpu")
 
@@ -525,7 +528,16 @@ def inpaint_main():
         # blended = np.where(m, gen, orig).astype(np.uint8) # 1)
 
         out_img = Image.fromarray(blended)
-        out_path = inpainted_dir / f"{name}_inpainted.png"
+        
+        # Create subdirectory for mesh_name
+        mesh_name = views_data[name].get("mesh_name", "")
+        if mesh_name:
+            mesh_inpainted_dir = inpainted_dir / mesh_name
+            mesh_inpainted_dir.mkdir(parents=True, exist_ok=True)
+            out_path = mesh_inpainted_dir / f"{name}_inpainted.png"
+        else:
+            out_path = inpainted_dir / f"{name}_inpainted.png"
+        
         out_img.save(out_path)
 
         inpainted_cache[name] = {
