@@ -1,30 +1,15 @@
 import torch
 from pytorch3d.renderer import look_at_view_transform, FoVPerspectiveCameras
 
-# def fibonacci_sphere(n):
-#     i = torch.arange(n)
-#     phi = (1 + 5 ** 0.5) / 2
-
-#     theta = 2 * torch.pi * i / phi
-#     z = 1 - (2 * i + 1) / n
-#     radius = torch.sqrt(1 - z * z)
-
-#     x = radius * torch.cos(theta)
-#     y = radius * torch.sin(theta)
-
-#     elev = torch.rad2deg(torch.asin(z))
-#     azim = torch.rad2deg(torch.atan2(y, x))
-
-#     return elev, azim
 
 def turntable_multi_ring(cfg, device):
-    n_rings = cfg.get("turntable_rings", 3)
-    n_views = cfg.get("views_per_ring", 8)
+    n_rings = cfg["turntable_rings"]
+    n_views = cfg["views_per_ring"]
 
     elev_levels = [
-        cfg.get("elev_mid", 0.0),
-        cfg.get("elev_high", 30.0),
-        cfg.get("elev_low", -30.0),
+        cfg["elev_mid"],
+        cfg["elev_high"],
+        cfg["elev_low"],
     ][:n_rings]
 
     azim = torch.linspace(0, 360, n_views + 1)[:-1]
@@ -53,11 +38,8 @@ def turntable_multi_ring(cfg, device):
     return elev.to(device), azim.to(device)
 
 def create_cameras(cfg, device):
-    # num_views = cfg["num_views"]
     dist = cfg["camera_distance"]
-    fov = cfg.get("fov", 60.0)
-
-    # elev, azim = fibonacci_sphere(num_views)
+    fov = cfg["fov"]
 
     elev, azim = turntable_multi_ring(cfg, device)
 

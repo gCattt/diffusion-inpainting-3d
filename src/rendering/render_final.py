@@ -23,35 +23,41 @@ def render_final_main():
 
     reconstructed_textures = sorted(reconstructed_textures_dir.glob("*_reconstructed.png"))
     if not reconstructed_textures:
-        print(f"no reconstructed textures found in {reconstructed_textures_dir}")
+        print(f"No reconstructed textures found in {reconstructed_textures_dir}")
         return
 
     for texture_path in reconstructed_textures:
         mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
         if mesh_path is None:
-            print(f"missing mesh for {texture_path.name}, skipping")
+            print(f"Missing mesh for {texture_path.name}, skipping")
             continue
 
-        mesh = load_mesh(mesh_path, texture_path, device)
-        mesh = normalize_mesh(mesh)
-        mesh_name = mesh_path.stem
+        try:
+            mesh = load_mesh(mesh_path, texture_path, device)
+            mesh = normalize_mesh(mesh)
+            mesh_name = mesh_path.stem
 
-        out_dir = final_renders_dir / mesh_name
-        out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = final_renders_dir / mesh_name
+            out_dir.mkdir(parents=True, exist_ok=True)
 
-        # num_views = cfg["num_views"]
-        num_views = len(cameras.R)
-        with torch.no_grad():
-            for i in range(num_views):
-                cam = cameras[[i]]
+            num_views = len(cameras.R)
+            with torch.no_grad():
+                for i in range(num_views):
+                    try:
+                        cam = cameras[[i]]
+                        images_shaded = renderer_shaded(mesh, cameras=cam)
+                        rgb_shaded = images_shaded[0, ..., :3]
+                        save_image(rgb_shaded.permute(2, 0, 1), out_dir / f"{mesh_name}_view{i:02d}_final.png")
+                    except Exception as e:
+                        print(f"Error rendering view {i} for {mesh_name}: {e}")
+                        continue
 
-                images_shaded = renderer_shaded(mesh, cameras=cam)
-                rgb_shaded = images_shaded[0, ..., :3]
-                save_image(rgb_shaded.permute(2, 0, 1), out_dir / f"{mesh_name}_view{i:02d}_final.png")
-
-        del mesh
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            del mesh
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"Error processing texture {texture_path.name}: {e}")
+            continue
 
 
 if __name__ == "__main__":

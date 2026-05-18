@@ -47,13 +47,19 @@ def create_renderer(cfg, device, flat=False):
     return renderer
 
 def load_mesh(mesh_path, texture_path, device):
-    verts, faces, aux = load_obj(str(mesh_path), load_textures=False)
+    try:
+        verts, faces, aux = load_obj(str(mesh_path), load_textures=False)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load mesh {mesh_path}: {e}") from e
 
-    texture = Image.open(texture_path).convert("RGB")
-    texture_tensor = torch.from_numpy(
-        np.array(texture)
-    ).float() / 255.0
-    texture_tensor = texture_tensor.unsqueeze(0).to(device)
+    try:
+        texture = Image.open(texture_path).convert("RGB")
+        texture_tensor = torch.from_numpy(
+            np.array(texture)
+        ).float() / 255.0
+        texture_tensor = texture_tensor.unsqueeze(0).to(device)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load texture {texture_path}: {e}") from e
 
     if aux.verts_uvs is None or faces.textures_idx is None:
         raise ValueError(f"Mesh {mesh_path.name} has no UV coordinates.")
@@ -96,7 +102,6 @@ def render_views(
     face_dir=None,
     bary_dir=None,
     cam_dir=None,
-    # cfg=None,
     device=None,
     save_aux=True,
 ):
@@ -104,7 +109,6 @@ def render_views(
     mesh = normalize_mesh(mesh)
     mesh_name = mesh_path.stem
 
-    # Create subdirectories for this mesh
     mesh_rgb_dir = rgb_dir / mesh_name
     mesh_rgb_dir.mkdir(parents=True, exist_ok=True)
 
@@ -124,36 +128,39 @@ def render_views(
         mesh_cam_dir = cam_dir / mesh_name
         mesh_cam_dir.mkdir(parents=True, exist_ok=True)
 
-    # num_views = cfg["num_views"]
     num_views = len(cameras.R)
     with torch.no_grad():
         for i in range(num_views):
-            cam = cameras[[i]]
+            try:
+                cam = cameras[[i]]
 
-            images_shaded = renderer_shaded(mesh, cameras=cam)
-            rgb_shaded = images_shaded[0, ..., :3]
-            save_image(rgb_shaded.permute(2, 0, 1), mesh_rgb_dir / f"{mesh_name}_view{i:02d}.png")
+                images_shaded = renderer_shaded(mesh, cameras=cam)
+                rgb_shaded = images_shaded[0, ..., :3]
+                save_image(rgb_shaded.permute(2, 0, 1), mesh_rgb_dir / f"{mesh_name}_view{i:02d}.png")
 
-            if mesh_rgb_inpaint_dir is not None:
-                images_flat = renderer_flat(mesh, cameras=cam)
-                rgb_flat = images_flat[0, ..., :3]
-                save_image(rgb_flat.permute(2, 0, 1), mesh_rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
-                del images_flat
+                if mesh_rgb_inpaint_dir is not None:
+                    images_flat = renderer_flat(mesh, cameras=cam)
+                    rgb_flat = images_flat[0, ..., :3]
+                    save_image(rgb_flat.permute(2, 0, 1), mesh_rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
+                    del images_flat
 
-            if save_aux:
-                fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
-                pix_to_face = fragments.pix_to_face[0]
-                bary_coords = fragments.bary_coords[0]
-                depth = fragments.zbuf[0, ..., 0]
+                if save_aux:
+                    fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
+                    pix_to_face = fragments.pix_to_face[0]
+                    bary_coords = fragments.bary_coords[0]
+                    depth = fragments.zbuf[0, ..., 0]
 
-                torch.save(depth.cpu(), mesh_depth_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save(pix_to_face.cpu(), mesh_face_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save(bary_coords.cpu(), mesh_bary_dir / f"{mesh_name}_view{i:02d}.pt")
-                torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, mesh_cam_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(depth.cpu(), mesh_depth_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(pix_to_face.cpu(), mesh_face_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(bary_coords.cpu(), mesh_bary_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, mesh_cam_dir / f"{mesh_name}_view{i:02d}.pt")
 
-                del fragments, depth
+                    del fragments, depth
 
-            del images_shaded
+                del images_shaded
+            except Exception as e:
+                print(f"Error rendering view {i} for {mesh_name}: {e}")
+                continue
 
     del mesh
     if torch.cuda.is_available():
@@ -177,7 +184,6 @@ def render_dataset(
     face_dir,
     bary_dir,
     cam_dir,
-    cfg,
     device,
     renderer_shaded,
     renderer_flat,
@@ -204,7 +210,7 @@ def render_dataset(
     for texture_path in texture_paths:
         mesh_path = find_mesh_for_texture(texture_path, mesh_dir)
         if mesh_path is None:
-            print(f"missing mesh for {texture_path.name}, skipping")
+            print(f"Missing mesh for {texture_path.name}, skipping")
             continue
 
         render_views(
@@ -219,7 +225,6 @@ def render_dataset(
             face_dir=face_dir,
             bary_dir=bary_dir,
             cam_dir=cam_dir,
-            # cfg=cfg,
             device=device,
             save_aux=save_aux,
         )
@@ -241,7 +246,7 @@ def renderer_main():
     corrupted_texture_dir = Path(cfg["texture_images_dir"])
     reference_texture_dir = Path(cfg["reference_texture_dir"])
 
-    render_root = Path(cfg["render_dir"])
+    render_root = Path(cfg["renders_dir"])
     rgb_dir = render_root / "rgb"
     rgb_inpaint_dir = render_root / "rgb_inpaint"
     reference_rgb_dir = render_root / "reference_rgb"
@@ -268,7 +273,6 @@ def renderer_main():
         face_dir=face_dir,
         bary_dir=bary_dir,
         cam_dir=cam_dir,
-        cfg=cfg,
         device=device,
         renderer_shaded=renderer_shaded,
         renderer_flat=renderer_flat,
@@ -287,7 +291,6 @@ def renderer_main():
         face_dir=face_dir,
         bary_dir=bary_dir,
         cam_dir=cam_dir,
-        cfg=cfg,
         device=device,
         renderer_shaded=renderer_shaded,
         renderer_flat=renderer_flat,

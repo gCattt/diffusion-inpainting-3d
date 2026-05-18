@@ -4,9 +4,9 @@ textures_resized_dir: data/textures/resized
 textures_corrupted_dir: data/textures/corrupted
 renders_dir: data/renders
 inpainted_views_dir : data/outputs/inpainted_views
+reconstructed_textures_dir: data/outputs/reconstructed_textures
 
 extensions: [jpg, jpeg, png]
-
 resize:
   size: 512
   quality: 95

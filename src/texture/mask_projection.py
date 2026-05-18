@@ -35,11 +35,12 @@ def project_mask(
     bary = bary_coords[valid].view(-1, 3).float()
 
     if face_ids.max().item() >= faces_uv.shape[0] or face_ids.min().item() < 0:
-        raise RuntimeError("face_ids out of range: check pix_to_face / faces_uv")
+        raise RuntimeError(f"face_ids out of range [0, {faces_uv.shape[0]}): check pix_to_face / faces_uv consistency")
 
     faces = faces_uv[face_ids]
 
     tex_h, tex_w = uv_mask.shape
+    valid_indices = valid.nonzero(as_tuple=False)
     start = 0
     while start < num_valid:
         end = min(start + batch_size, num_valid)
@@ -60,7 +61,6 @@ def project_mask(
 
         sampled = uv_mask[v, u]
 
-        valid_indices = valid.nonzero(as_tuple=False)
         batch_indices = valid_indices[start:end]
         view_mask[batch_indices[:, 0], batch_indices[:, 1]] = sampled
 
@@ -78,7 +78,7 @@ def mask_projection_main():
     mesh_dir = Path(cfg["mesh_dir"])
     texture_images_dir = Path(cfg["texture_images_dir"])
     texture_masks_dir = Path(cfg["texture_masks_dir"])
-    render_dir = Path(cfg["render_dir"])
+    render_dir = Path(cfg["renders_dir"])
 
     face_dir = render_dir / "face_idx"
     bary_dir = render_dir / "barycentric"
@@ -95,11 +95,14 @@ def mask_projection_main():
 
         mesh_name = mesh_path.stem
 
-        # Create subdirectory for this mesh
         mesh_mask_out_dir = mask_out_dir / mesh_name
         mesh_mask_out_dir.mkdir(parents=True, exist_ok=True)
 
-        verts, faces, aux = load_obj(mesh_path, load_textures=False)
+        try:
+            verts, faces, aux = load_obj(mesh_path, load_textures=False)
+        except Exception as e:
+            print(f"Error loading mesh {mesh_path}: {e}")
+            continue
 
         verts_uv = aux.verts_uvs.to(device)
         faces_uv = faces.textures_idx.to(device)
@@ -107,15 +110,20 @@ def mask_projection_main():
         base_name = texture_path.stem.replace("_corrupted", "_mask")
         mask_path = texture_masks_dir / f"{base_name}.png"
 
-        if not mask_path.exists():    continue
+        if not mask_path.exists():
+            continue
 
-        uv_mask = load_uv_mask(mask_path, device)
+        try:
+            uv_mask = load_uv_mask(mask_path, device)
+        except Exception as e:
+            print(f"Error loading mask {mask_path}: {e}")
+            continue
 
         face_dir_mesh = face_dir / mesh_name
         bary_dir_mesh = bary_dir / mesh_name
 
         if not face_dir_mesh.exists() or not bary_dir_mesh.exists():
-            print(f"missing mesh-specific render data for {mesh_name}, skipping")
+            print(f"Missing mesh-specific render data for {mesh_name}, skipping")
             continue
 
         face_files = sorted(face_dir_mesh.glob(f"{mesh_name}_view*.pt"))
@@ -128,15 +136,19 @@ def mask_projection_main():
 
             bary_file = bary_dir_mesh / f"{mesh_name}_{view_id}.pt"
 
-            pix_to_face = torch.load(face_file)
-            if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
-                pix_to_face = pix_to_face.squeeze(-1)
-            pix_to_face = pix_to_face.to(device).long()
+            try:
+                pix_to_face = torch.load(face_file, map_location="cpu")
+                if pix_to_face.ndim == 3 and pix_to_face.shape[-1] == 1:
+                    pix_to_face = pix_to_face.squeeze(-1)
+                pix_to_face = pix_to_face.to(device).long()
 
-            bary_coords = torch.load(bary_file)
-            if bary_coords.ndim == 4 and bary_coords.shape[2] == 1:
-                bary_coords = bary_coords.squeeze(2)
-            bary_coords = bary_coords.to(device).float()
+                bary_coords = torch.load(bary_file, map_location="cpu")
+                if bary_coords.ndim == 4 and bary_coords.shape[2] == 1:
+                    bary_coords = bary_coords.squeeze(2)
+                bary_coords = bary_coords.to(device).float()
+            except Exception as e:
+                print(f"Error loading face/barycentric indices for {mesh_name} {view_id}: {e}")
+                continue
 
             view_mask = project_mask(
                 uv_mask,

@@ -3,7 +3,6 @@ from PIL import Image
 import torch
 import numpy as np
 import cv2
-import re
 from pytorch3d.io import load_obj
 
 from src.utils.io_utils import group_inpainted_by_mesh, resolve_assets_for_mesh
@@ -49,7 +48,6 @@ def calculate_face_view_weights(face_centroids, face_normals, R, T, power=2.0):
     w = np.clip(w, 0.0, 1.0)
 
     w = 0.1 + 0.9 * (w ** power) 
-    # w = 0.05 + 0.95 * (w ** power)   # only for dense views and very consistent inpainting across them 
 
     return w.astype(np.float32)
 
@@ -68,7 +66,6 @@ def backproject_single_view(
     if valid_mask.sum() == 0:
         return None, None
     
-    # mask_u8 = (view_mask * 255).astype(np.uint8)
     mask_u8 = (view_mask > 0.05).astype(np.uint8)
     if mask_u8.max() == 0: return None, None
     
@@ -106,7 +103,6 @@ def backproject_single_view(
 
     src = image_np[ys, xs].astype(np.float32)
 
-    # w = face_weights[face_ids] * view_mask[ys, xs]
     w = face_weights[face_ids] * edge_confidence[ys, xs]
 
     tex_acc = np.zeros((tex_h, tex_w, 3), dtype=np.float32)
@@ -192,7 +188,7 @@ def reconstruct_texture_for_mesh(
             with Image.open(img_path) as im:
                 image_np = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
         except Exception as e:
-            print(f"skipping {stem} due to error: {e}")
+            print(f"Error loading backprojection data for {stem}: {e}")
             continue
 
         face_weights = calculate_face_view_weights(face_centroids, face_normals, cam_data["R"], cam_data["T"], power=2.0)
@@ -218,7 +214,6 @@ def reconstruct_texture_for_mesh(
         final_uv[improve_mask] = uv_colors[improve_mask]
         best_weight_map[improve_mask] = uv_weights[improve_mask]
 
-    # post-process
     reconstructed_mask = best_weight_map > 1e-6
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -261,7 +256,7 @@ def backprojection_main():
     cam_dir = render_dir / "cameras"
     mask_dir = render_dir / "masks"
 
-    out_dir = Path(cfg.get("reconstructed_texture_dir", "data/outputs/reconstructed_textures"))
+    out_dir = Path(cfg["reconstructed_textures_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
     grouped = group_inpainted_by_mesh(inpainted_dir)

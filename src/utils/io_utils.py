@@ -54,7 +54,6 @@ def find_corruption_mask(mesh_name: str, mask_dir: Path):
 
 def group_inpainted_by_mesh(inpainted_dir: Path):
     groups = {}
-    # Use rglob to find files recursively (in mesh subdirectories)
     for p in inpainted_dir.rglob("*_inpainted.png"):
         mesh_name = p.parent.name
         groups.setdefault(mesh_name, []).append(p)

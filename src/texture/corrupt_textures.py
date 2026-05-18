@@ -81,7 +81,7 @@ def corrupt_main():
 
     extensions = [
         ext.lower().lstrip(".")
-        for ext in cfg.get("extensions", [])
+        for ext in cfg["extensions"]
     ]
 
     num_shapes = corrupt_cfg["num_shapes"]
@@ -101,7 +101,11 @@ def corrupt_main():
         images_path = images_dir / f"{name}_corrupted.png"
         masks_path = masks_dir / f"{name}_mask.png"
 
-        corrupt_single_texture(img_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio)
+        try:
+            corrupt_single_texture(img_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio)
+        except Exception as e:
+            print(f"Error corrupting {name}: {e}")
+            continue
 
 
 if __name__ == "__main__":

@@ -73,8 +73,7 @@ class DiffusionInpaint:
             try:
                 self.pipe.enable_xformers_memory_efficient_attention()
             except Exception:
-                pass
-            self.pipe.enable_attention_slicing()
+                self.pipe.enable_attention_slicing()
 
             try:
                 self.pipe.vae.enable_slicing()
@@ -274,14 +273,10 @@ def depth_tensor_to_control_pil(depth_tensor, target_size: Optional[int] = None,
     if valid_mask is not None:
             d = d.copy()
             d[valid_mask == 0] = np.nan
-            
-    # mn = float(np.nanmin(d)) if np.isfinite(np.nanmin(d)) else 0.0
-    # mx = float(np.nanmax(d)) if np.isfinite(np.nanmax(d)) else mn + 1.0
 
     mn = np.nanpercentile(d, 2)
     mx = np.nanpercentile(d, 98)
     if mx - mn > 1e-8:
-        # dn = (np.nan_to_num(d, nan=mn) - mn) / (mx - mn)
         dn = (d - mn) / (mx - mn)
     else:
         dn = np.zeros_like(d)

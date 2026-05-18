@@ -1,17 +1,14 @@
-# PyTorch3D rendering
-
 mesh_dir: data/models
 reference_texture_dir: data/textures/resized
 texture_images_dir: data/textures/corrupted/images
 texture_masks_dir: data/textures/corrupted/masks
-render_dir: data/renders
+renders_dir: data/renders
 reference_render_dir: data/renders/reference_rgb
 outputs_dir: data/outputs
 reconstructed_textures_dir: data/outputs/reconstructed_textures
 final_renders_dir: data/outputs/final_renders
 evaluation_dir: data/outputs/evaluation
 
-# num_views: 16
 image_size: 512
 
 turntable_rings: 3
@@ -25,6 +22,6 @@ add_top_bottom: true
 elev_top: 85.0
 elev_bottom: -85.0
 
-camera_distance: 2.7   # 2.5 - 3.0, distance of camera from object center
+camera_distance: 2.7
 
-fov: 55.0   # 45.0 - 75.0, field of view for rendering cameras, higher = wider angle and more distortion, lower = narrower angle and less distortion
+fov: 55.0

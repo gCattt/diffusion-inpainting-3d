@@ -5,15 +5,18 @@ from src.utils.config_utils import load_yaml_config
 
 
 def resize_texture(src_path: Path, dst_path: Path, size: int, quality=95):
-    with Image.open(src_path) as img:
-        img = img.convert("RGB")
+    try:
+        with Image.open(src_path) as img:
+            img = img.convert("RGB")
 
-        if img.width != size or img.height != size:
-            img = img.resize((size, size), Image.LANCZOS)
+            if img.width != size or img.height != size:
+                img = img.resize((size, size), Image.LANCZOS)
 
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-
-        img.save(dst_path, quality=quality)
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(dst_path, quality=quality)
+    except Exception as e:
+        print(f"Error resizing {src_path}: {e}")
+        raise
 
 def resize_main():
     cfg = load_yaml_config("configs/texture_config.yaml")
@@ -27,7 +30,7 @@ def resize_main():
 
     extensions = [
         ext.lower().lstrip(".")
-        for ext in cfg.get("extensions", [])
+        for ext in cfg["extensions"]
     ]
 
     files = []
