@@ -12,6 +12,8 @@ resize:
   quality: 95
 
 corruption:
-  num_shapes: 3
-  line_thickness_min: 4
-  line_thickness_max: 15
+  num_shapes: 4
+  line_thickness_min: 3
+  line_thickness_max: 12
+  min_shape_size: 8
+  max_ratio: 0.25
