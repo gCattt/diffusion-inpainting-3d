@@ -16,6 +16,7 @@ from pytorch3d.renderer import (
     TexturesUV
 )
 from torchvision.utils import save_image
+import gc
 
 from .camera_utils import create_cameras
 from src.utils.config_utils import load_yaml_config
@@ -33,7 +34,13 @@ def create_renderer(cfg, device, flat=False):
         lights = AmbientLights(device=device, ambient_color=[[1.0, 1.0, 1.0]])
         shader = HardFlatShader(device=device, cameras=None, lights=lights)
     else:
-        lights = PointLights(device=device, location=[[0.0, 5.0, 0.0]])
+        lights = PointLights(
+            device=device,
+            location=[[2.0, 2.0, -2.0]],
+            ambient_color=((0.5, 0.5, 0.5),),
+            diffuse_color=((0.4, 0.4, 0.4),),
+            specular_color=((0.1, 0.1, 0.1),),
+        )
         shader = SoftPhongShader(device=device, cameras=None, lights=lights)
 
     renderer = MeshRenderer(
@@ -128,36 +135,43 @@ def render_views(
         mesh_cam_dir = cam_dir / mesh_name
         mesh_cam_dir.mkdir(parents=True, exist_ok=True)
 
+    rasterizer = renderer_shaded.rasterizer
+    shader_shaded = renderer_shaded.shader
+    shader_flat = renderer_flat.shader if mesh_rgb_inpaint_dir is not None else None
+
     num_views = len(cameras.R)
+
     with torch.no_grad():
         for i in range(num_views):
             try:
                 cam = cameras[[i]]
 
-                images_shaded = renderer_shaded(mesh, cameras=cam)
-                rgb_shaded = images_shaded[0, ..., :3]
+                fragments = rasterizer(mesh, cameras=cam)
+
+                images_shaded = shader_shaded(fragments, mesh, cameras=cam)
+                rgb_shaded = images_shaded[0, ..., :3].cpu()
                 save_image(rgb_shaded.permute(2, 0, 1), mesh_rgb_dir / f"{mesh_name}_view{i:02d}.png")
 
-                if mesh_rgb_inpaint_dir is not None:
-                    images_flat = renderer_flat(mesh, cameras=cam)
-                    rgb_flat = images_flat[0, ..., :3]
+                if shader_flat is not None:
+                    images_flat = shader_flat(fragments, mesh, cameras=cam)
+                    rgb_flat = images_flat[0, ..., :3].cpu()
                     save_image(rgb_flat.permute(2, 0, 1), mesh_rgb_inpaint_dir / f"{mesh_name}_view{i:02d}.png")
-                    del images_flat
+                    del images_flat, rgb_flat
 
                 if save_aux:
-                    fragments = renderer_shaded.rasterizer(mesh, cameras=cam)
-                    pix_to_face = fragments.pix_to_face[0]
-                    bary_coords = fragments.bary_coords[0]
-                    depth = fragments.zbuf[0, ..., 0]
+                    pix_to_face = fragments.pix_to_face[0].cpu()
+                    bary_coords = fragments.bary_coords[0].cpu()
+                    depth = fragments.zbuf[0, ..., 0].cpu()
 
-                    torch.save(depth.cpu(), mesh_depth_dir / f"{mesh_name}_view{i:02d}.pt")
-                    torch.save(pix_to_face.cpu(), mesh_face_dir / f"{mesh_name}_view{i:02d}.pt")
-                    torch.save(bary_coords.cpu(), mesh_bary_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(depth, mesh_depth_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(pix_to_face, mesh_face_dir / f"{mesh_name}_view{i:02d}.pt")
+                    torch.save(bary_coords, mesh_bary_dir / f"{mesh_name}_view{i:02d}.pt")
                     torch.save({"R": cam.R.cpu(), "T": cam.T.cpu()}, mesh_cam_dir / f"{mesh_name}_view{i:02d}.pt")
 
-                    del fragments, depth
+                    del depth, pix_to_face, bary_coords
 
-                del images_shaded
+                del fragments, images_shaded, rgb_shaded, cam
+                    
             except Exception as e:
                 print(f"Error rendering view {i} for {mesh_name}: {e}")
                 continue
@@ -165,6 +179,7 @@ def render_views(
     del mesh
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    gc.collect()
 
 def collect_texture_files(texture_dir: Path, extensions):
     files = []

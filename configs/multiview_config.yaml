@@ -3,8 +3,10 @@ reference_texture_dir: data/textures/resized
 texture_images_dir: data/textures/corrupted/images
 texture_masks_dir: data/textures/corrupted/masks
 renders_dir: data/renders
+corrupted_render_dir: data/renders/rgb
 reference_render_dir: data/renders/reference_rgb
 outputs_dir: data/outputs
+inpainted_views_dir: data/outputs/inpainted_views
 reconstructed_textures_dir: data/outputs/reconstructed_textures
 final_renders_dir: data/outputs/final_renders
 evaluation_dir: data/outputs/evaluation

@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 from src.utils.config_utils import load_yaml_config
 
 
-def generate_random_mask(width, height, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio):
+def generate_random_mask(width, height, num_shapes, thickness_min, thickness_max, min_shape_size, shape_max_ratio, line_max_ratio):
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
 
@@ -16,8 +16,8 @@ def generate_random_mask(width, height, num_shapes, thickness_min, thickness_max
             weights=[0.3, 0.2, 0.5]
         )[0]
 
-        max_w = max(min_shape_size, int(width * max_ratio))
-        max_h = max(min_shape_size, int(height * max_ratio))
+        max_w = max(min_shape_size, int(width * shape_max_ratio))
+        max_h = max(min_shape_size, int(height * shape_max_ratio))
 
         w_shape = random.randint(min_shape_size, max_w)
         h_shape = random.randint(min_shape_size, max_h)
@@ -35,7 +35,7 @@ def generate_random_mask(width, height, num_shapes, thickness_min, thickness_max
             x1 = random.randint(0, width - 1)
             y1 = random.randint(0, height - 1)
 
-            max_len = int(min(width, height) * max_ratio)
+            max_len = int(min(width, height) * line_max_ratio)
             dx = random.randint(-max_len, max_len)
             dy = random.randint(-max_len, max_len)
 
@@ -57,11 +57,11 @@ def apply_corruption(texture, mask):
 
     return Image.fromarray(corrupted)
 
-def corrupt_single_texture(input_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio):
+def corrupt_single_texture(input_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, shape_max_ratio, line_max_ratio):
     texture = Image.open(input_path).convert("RGB")
     w, h = texture.size
 
-    mask = generate_random_mask(w, h, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio)
+    mask = generate_random_mask(w, h, num_shapes, thickness_min, thickness_max, min_shape_size, shape_max_ratio, line_max_ratio)
     corrupted = apply_corruption(texture, mask)
 
     corrupted.save(images_path)
@@ -88,7 +88,8 @@ def corrupt_main():
     thickness_min = corrupt_cfg["line_thickness_min"]
     thickness_max = corrupt_cfg["line_thickness_max"]
     min_shape_size = corrupt_cfg["min_shape_size"]
-    max_ratio = corrupt_cfg["max_ratio"]
+    shape_max_ratio = corrupt_cfg["shape_max_ratio"]
+    line_max_ratio = corrupt_cfg["line_max_ratio"]
 
     files = []
     for ext in extensions:
@@ -102,7 +103,7 @@ def corrupt_main():
         masks_path = masks_dir / f"{name}_mask.png"
 
         try:
-            corrupt_single_texture(img_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, max_ratio)
+            corrupt_single_texture(img_path, images_path, masks_path, num_shapes, thickness_min, thickness_max, min_shape_size, shape_max_ratio, line_max_ratio)
         except Exception as e:
             print(f"Error corrupting {name}: {e}")
             continue

@@ -1,0 +1,13 @@
+# Blender 5.0.1 MTL File: 'dirty_football_8k.blend'
+# www.blender.org
+
+newmtl dirty_football
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd textures/dirty_football_diff_8k.jpg
+map_Ns textures/dirty_football_rough_8k.exr
+map_Bump -bm 1.000000 textures/dirty_football_nor_gl_8k.exr

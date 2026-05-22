@@ -1,6 +1,7 @@
 from pathlib import Path
 import torch
 from torchvision.utils import save_image
+import gc
 
 from src.rendering.camera_utils import create_cameras
 from src.rendering.renderer import create_renderer, load_mesh, normalize_mesh
@@ -45,9 +46,13 @@ def render_final_main():
                 for i in range(num_views):
                     try:
                         cam = cameras[[i]]
+
                         images_shaded = renderer_shaded(mesh, cameras=cam)
                         rgb_shaded = images_shaded[0, ..., :3]
                         save_image(rgb_shaded.permute(2, 0, 1), out_dir / f"{mesh_name}_view{i:02d}_final.png")
+
+                        del images_shaded, rgb_shaded, cam
+
                     except Exception as e:
                         print(f"Error rendering view {i} for {mesh_name}: {e}")
                         continue
@@ -55,6 +60,8 @@ def render_final_main():
             del mesh
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            gc.collect()
+
         except Exception as e:
             print(f"Error processing texture {texture_path.name}: {e}")
             continue

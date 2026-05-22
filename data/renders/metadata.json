@@ -1,12 +1,12 @@
 [
   {
     "dataset": "corrupted",
-    "mesh": "food_kiwi_01_8k.obj",
-    "texture": "food_kiwi_01_diff_8k_corrupted.png"
+    "mesh": "dirty_football_8k.obj",
+    "texture": "dirty_football_diff_8k_corrupted.png"
   },
   {
     "dataset": "reference",
-    "mesh": "food_kiwi_01_8k.obj",
-    "texture": "food_kiwi_01_diff_8k.png"
+    "mesh": "dirty_football_8k.obj",
+    "texture": "dirty_football_diff_8k.png"
   }
 ]

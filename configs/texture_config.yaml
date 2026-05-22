@@ -16,4 +16,5 @@ corruption:
   line_thickness_min: 3
   line_thickness_max: 12
   min_shape_size: 8
-  max_ratio: 0.25
+  shape_max_ratio: 0.12
+  line_max_ratio: 0.25
